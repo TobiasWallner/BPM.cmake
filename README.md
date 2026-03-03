@@ -90,7 +90,7 @@ build/
 You can optionally enable a shared/global cache:
 
 ```bash
-cmake -DBPM_CACHE=/path/to/cache
+cmake -S . -B buil -DBPM_CACHE=/path/to/cache
 ```
 
 or via environment variable:
