@@ -447,10 +447,17 @@ endfunction()
             ${BPM_ARGS}
             ${toolchain_args}
 
-            # disable testing
+            # try disable testing
             -DBUILD_TESTING=OFF 
             -DBUILD_TESTS=OFF
-            -DENABLE_TESTS=OFF
+            -DENABLE_TESTING=OFF
+			-DENABLE_TESTS=OFF
+			
+			# try disable building examples
+			-DBUILD_EXAMPLES=OFF
+			-DBUILD_EXAMPLE=OFF
+			-DENABLE_EXAMPLES=OFF
+			-DENABLE_EXAMPLE=OFF
 
             OUTPUT_QUIET
             RESULT_VARIABLE res
