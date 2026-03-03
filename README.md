@@ -48,7 +48,9 @@ target_link_libraries(my_target PRIVATE <library>)
 - `GIT_TAG`: Tag, branch, or commit
 - `BUILD_TYPE`: Release / Debug / etc (default: Release)
 - `ARGS`: Additional -D flags forwarded to the dependency
-- `TRANSITIVE_COMPILER_FLAGS`: Optional compiler flags for dependency builds
+
+#### Implicit
+- `CMAKE_TOOLCHAIN_FILE`:  A toolchain file required at the top level. Will be passed transitively to all packages.
 
 ✨ Features
 ------------
