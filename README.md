@@ -40,7 +40,6 @@ target_link_libraries(my_target PRIVATE <library>)
 ### Supported Options
 
 #### Required
-- `Argument`: Description
 - `NAME`: Logical dependency name
 - `PACKAGES`: CMake package names to expose
 - `GIT_REPOSITORY`: Git repository URL
