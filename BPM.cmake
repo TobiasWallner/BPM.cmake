@@ -139,8 +139,6 @@ cmake_minimum_required(VERSION 3.20)
 
 function(bpm_resolve_var RESULT_VAR)
 
-    message(STATUS "BPM: resolve ${RESULT_VAR}")
-
     # If user did not pass -D
     if(NOT DEFINED ${RESULT_VAR})
 
@@ -149,15 +147,15 @@ function(bpm_resolve_var RESULT_VAR)
         # Check environment variable
         if(DEFINED ENV{${RESULT_VAR}} AND NOT "$ENV{${RESULT_VAR}}" STREQUAL "")
             set(_value "$ENV{${RESULT_VAR}}")
-            message(STATUS "BPM: resolve ${RESULT_VAR} - from environment variable: ${_value}")
+            message(STATUS "BPM [${BPM_NAME}]: resolve ${RESULT_VAR} - from environment variable: ${_value}")
         else()
-            message(STATUS "BPM: resolve ${RESULT_VAR} - empty")
+            message(STATUS "BPM [${BPM_NAME}]: resolve ${RESULT_VAR} - no chache: use local <build-dir>/_deps")
         endif()
 
         set(${RESULT_VAR} "${_value}" CACHE PATH "" FORCE)
 
     else()
-        message(STATUS "BPM: resolve ${RESULT_VAR} - from CMAKE_ARG: ${${RESULT_VAR}}")
+        message(STATUS "BPM [${BPM_NAME}]: resolve ${RESULT_VAR} - from CMAKE_ARG: ${${RESULT_VAR}}")
     endif()
 
 endfunction()
@@ -235,23 +233,23 @@ endfunction()
     # Validate Required Arguments
     # -------------------------------
     if(NOT BPM_NAME)
-        message(FATAL_ERROR "BPM: NAME is required")
+        message(FATAL_ERROR "BPM [${BPM_NAME}]: NAME is required")
     endif()
     
     if(NOT BPM_PACKAGES)
-        message(FATAL_ERROR "BPM: PACKAGES is required")
+        message(FATAL_ERROR "BPM [${BPM_NAME}]: PACKAGES is required")
     endif()
     
     if(NOT BPM_GIT_REPOSITORY)
-        message(FATAL_ERROR "BPM: GIT_REPOSITORY is required")
+        message(FATAL_ERROR "BPM [${BPM_NAME}]: GIT_REPOSITORY is required")
     endif()
     
     if(NOT BPM_GIT_TAG)
-        message(STATUS "BPM: GIT_TAG not provided --> defaulting to main/master HEAD")
+        message(STATUS "BPM [${BPM_NAME}]: GIT_TAG not provided --> defaulting to main/master HEAD")
     endif()
     
     if(NOT BPM_BUILD_TYPE)
-        message(STATUS "BPM: BUILD_TYPE not provided --> defaulting to Release")
+        message(STATUS "BPM [${BPM_NAME}]: BUILD_TYPE not provided --> defaulting to Release")
         set(BPM_BUILD_TYPE Release)
     endif()
 
@@ -265,7 +263,14 @@ endfunction()
     bpm_manifest_append(manifest BPM_GIT_REPOSITORY manifest)
     bpm_manifest_append(manifest BPM_GIT_TAG manifest)
     bpm_manifest_append(manifest BPM_BUILD_TYPE manifest)
-    bpm_manifest_append(manifest BPM_ARGS manifest)
+    
+    # sort arguments before appending
+    set(_sorted_args "${BPM_ARGS}")
+    list(SORT _sorted_args)
+    string(JOIN ";" _sorted_args_string ${_sorted_args})
+    set(BPM_ARGS_SORTED "${_sorted_args_string}")
+    bpm_manifest_append(manifest BPM_ARGS_SORTED manifest)
+    
     string(SHA256 MANIFEST_HASH "${manifest}")
     string(SUBSTRING "${MANIFEST_HASH}" 0 16 SHORT_HASH)
 
@@ -294,15 +299,15 @@ endfunction()
     
     set(all_packages_found TRUE)
     foreach(package IN LISTS BPM_PACKAGES)
-        message(STATUS "BPM: Find package : ${BPM_NAME}: ${package} in ${library_install_dir}")
+        message(STATUS "BPM [${BPM_NAME}]: Find package : ${BPM_NAME}: ${package} in ${library_install_dir}")
         # unset for deterministic find without sideeffects
         unset(${package}_DIR CACHE)
         unset(${package}_DIR)
         find_package(${package} QUIET CONFIG NO_DEFAULT_PATH PATHS "${library_install_dir}")
         if(${package}_FOUND)
-            message(STATUS "BPM: Find package : ${BPM_NAME}: ${package} - found")
+            message(STATUS "BPM [${BPM_NAME}]: package ${package} - found")
         else()
-            message(WARNING "BPM: Find package : ${BPM_NAME}: ${package} - missing --> attempt install")
+            message(WARNING "BPM [${BPM_NAME}]: package ${package} - missing --> attempt install")
             set(all_packages_found FALSE)
         endif()
     endforeach()
@@ -311,19 +316,17 @@ endfunction()
     # Install Repository (if needed)
     # -------------------------------
     
-    if(${all_packages_found})
-        message(STATUS "BPM: Found all packages for library: ${BPM_NAME}")
-    else()
-        message(STATUS "BPM: Did not find installed library: ${BPM_NAME}")
+    if(NOT ${all_packages_found})
+        message(STATUS "BPM [${BPM_NAME}]: Did not find installed library: ${BPM_NAME}")
         
         # -------------------------------
         # Clone Repository (if needed)
         # -------------------------------
         
-        message(STATUS "BPM: Cloning git repository: ${BPM_GIT_REPOSITORY}")
+        message(STATUS "BPM [${BPM_NAME}]: Cloning git repository: ${BPM_GIT_REPOSITORY}")
         if(EXISTS "${library_mirror_dir}/HEAD")
-            message(STATUS "BPM: Git mirror found at: ${library_mirror_dir}")
-            message(STATUS "BPM: Cloning git repository: ${BPM_GIT_REPOSITORY} - skipped")
+            message(STATUS "BPM [${BPM_NAME}]: Git mirror found at: ${library_mirror_dir}")
+            message(STATUS "BPM [${BPM_NAME}]: Cloning git repository: ${BPM_GIT_REPOSITORY} - skipped")
         else()
             
             execute_process(
@@ -332,9 +335,9 @@ endfunction()
             )
         
             if(res EQUAL 0)
-                message(STATUS "BPM: Cloning git repository: ${BPM_GIT_REPOSITORY} - success")
+                message(STATUS "BPM [${BPM_NAME}]: Cloning git repository: ${BPM_GIT_REPOSITORY} - success")
             else() 
-                message(FATAL_ERROR "BPM: Cloning git repository: ${BPM_GIT_REPOSITORY} - failed")
+                message(FATAL_ERROR "BPM [${BPM_NAME}]: Cloning git repository: ${BPM_GIT_REPOSITORY} - failed")
             endif()
         endif()
 
@@ -342,7 +345,7 @@ endfunction()
         # checkout tag
         # -------------------------------
 
-        message(STATUS "BPM: Update mirror for tag ${BPM_GIT_TAG}")
+        message(STATUS "BPM [${BPM_NAME}]: Update mirror for tag ${BPM_GIT_TAG}")
 
         # check if tag exists
         execute_process(
@@ -355,10 +358,10 @@ endfunction()
 
         # fetch if tag does not exist in the mirror
         if(tag_exists EQUAL 0)
-            message(STATUS "BPM: tag ${BPM_GIT_TAG} is part of the mirror")
-            message(STATUS "BPM: Update mirror for tag ${BPM_GIT_TAG} - skipped")
+            message(STATUS "BPM [${BPM_NAME}]: tag ${BPM_GIT_TAG} is part of the mirror")
+            message(STATUS "BPM [${BPM_NAME}]: Update mirror for tag ${BPM_GIT_TAG} - skipped")
         else()
-            message(STATUS "BPM: tag ${BPM_GIT_TAG} is not part of the mirror --> attempt to update/fetch mirror")
+            message(STATUS "BPM [${BPM_NAME}]: tag ${BPM_GIT_TAG} is not part of the mirror --> attempt to update/fetch mirror")
 
             execute_process(
                 COMMAND git --git-dir=${library_mirror_dir}
@@ -367,11 +370,11 @@ endfunction()
             )
 
             if(NOT res EQUAL 0)
-                message(STATUS "BPM: Failed to fetch mirror")
-                message(FATAL_ERROR "BPM: Update mirror for tag ${BPM_GIT_TAG} - failed")
+                message(STATUS "BPM [${BPM_NAME}]: Failed to fetch mirror")
+                message(FATAL_ERROR "BPM [${BPM_NAME}]: Update mirror for tag ${BPM_GIT_TAG} - failed")
             endif()
 
-            message(STATUS "BPM: Re-check if git tag ${BPM_GIT_TAG} exists after fetch")
+            message(STATUS "BPM [${BPM_NAME}]: Re-check if git tag ${BPM_GIT_TAG} exists after fetch")
             execute_process(
                 COMMAND git --git-dir=${library_mirror_dir}
                         rev-parse --verify ${BPM_GIT_TAG}^{commit}
@@ -381,26 +384,31 @@ endfunction()
             )
 
             if(tag_exists EQUAL 0)
-                message(STATUS "BPM: Re-check if git tag ${BPM_GIT_TAG} exists after fetch - success")
+                message(STATUS "BPM [${BPM_NAME}]: Re-check if git tag ${BPM_GIT_TAG} exists after fetch - success")
             else()
-                message(FATAL_ERROR "BPM: Re-check if git tag ${BPM_GIT_TAG} exists after fetch - failed")
+                message(FATAL_ERROR "BPM [${BPM_NAME}]: Re-check if git tag ${BPM_GIT_TAG} exists after fetch - failed")
             endif()
         endif()
-        message(STATUS "BPM: Update mirror for tag ${BPM_GIT_TAG} - success")
+        message(STATUS "BPM [${BPM_NAME}]: Update mirror for tag ${BPM_GIT_TAG} - success")
 
         # clone mirror into woring source dir
-        message(STATUS "Cloning mirror into source dir")
-        execute_process(
-            COMMAND git clone --reference ${library_mirror_dir} --branch ${BPM_GIT_TAG} ${library_mirror_dir} ${library_src_dir} -c advice.detachedHead=false
-            RESULT_VARIABLE res
-        )
-        if(res EQUAL 0)
-            message(STATUS "Cloning mirror into source dir - success")
+        message(STATUS "BPM [${BPM_NAME}]: Cloning mirror into source dir")
+        if(NOT EXISTS ${library_src_dir}/.git)
+            execute_process(
+                COMMAND git clone --reference ${library_mirror_dir} --branch ${BPM_GIT_TAG} ${library_mirror_dir} ${library_src_dir} -c advice.detachedHead=false
+                RESULT_VARIABLE res
+            )
+            if(res EQUAL 0)
+                message(STATUS "BPM [${BPM_NAME}]: Cloning mirror into source dir - success")
+            else()
+                message(FATAL_ERROR "BPM [${BPM_NAME}]: Cloning mirror into source dir - failed")
+            endif()
         else()
-            message(FATAL_ERROR "Cloning mirror into source dir - failed")
+            message(STATUS "BPM [${BPM_NAME}]: Cloning mirror into source dir - skipped")
         endif()
+        
 
-        message(STATUS "Updating git-submodules")
+        message(STATUS "BPM [${BPM_NAME}]: Updating git-submodules")
         execute_process(
             COMMAND git -C ${library_src_dir} submodule update --init --recursive
             RESULT_VARIABLE res
@@ -415,42 +423,50 @@ endfunction()
         # Configure
         # -------------------------------
     
-        set(forward_args "")
+        set(toolchain_args "")
         
         if(CMAKE_TOOLCHAIN_FILE)
-            list(APPEND forward_args "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
+            list(APPEND toolchain_args "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
         else()
-            list(APPEND forward_args
+            list(APPEND toolchain_args
                 "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
                 "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
             )
         endif()
 
-        message(STATUS "BPM: Configuring ${BPM_NAME}")
         execute_process(
             COMMAND ${CMAKE_COMMAND}
             -S ${library_src_dir}
             -B ${library_build_dir}
+            
             -DCMAKE_BUILD_TYPE=${BPM_BUILD_TYPE}
             -DCMAKE_INSTALL_PREFIX=${library_install_dir}
             -DCMAKE_POSITION_INDEPENDENT_CODE=${CMAKE_POSITION_INDEPENDENT_CODE}
             -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
+            
             ${BPM_ARGS}
-            ${forward_args}
+            ${toolchain_args}
+
+            # disable testing
+            -DBUILD_TESTING=OFF 
+            -DBUILD_TESTS=OFF
+            -DENABLE_TESTS=OFF
+
             OUTPUT_QUIET
             RESULT_VARIABLE res
         )
+
         if(res EQUAL 0)
-            message(STATUS "BPM: Configuring ${BPM_NAME} - done")
+            message(STATUS "BPM [${BPM_NAME}]: Configuring ${BPM_NAME} - done")
         else() 
-            message(STATUS "BPM: Configuring ${BPM_NAME} - failed")
+            message(STATUS "BPM [${BPM_NAME}]: Configuring ${BPM_NAME} - failed")
         endif()
     
         # -------------------------------
         # Build
         # -------------------------------
     
-        message(STATUS "BPM: Building ${BPM_NAME}")
+        message(STATUS "BPM [${BPM_NAME}]: Building ${BPM_NAME}")
         execute_process(
             COMMAND ${CMAKE_COMMAND}
             --build ${library_build_dir}
@@ -459,16 +475,16 @@ endfunction()
             RESULT_VARIABLE res
         )
         if(res EQUAL 0)
-            message(STATUS "BPM: Building ${BPM_NAME} - done")
+            message(STATUS "BPM [${BPM_NAME}]: Building ${BPM_NAME} - done")
         else() 
-            message(STATUS "BPM: Building ${BPM_NAME} - failed")
+            message(STATUS "BPM [${BPM_NAME}]: Building ${BPM_NAME} - failed")
         endif()
     
         # -------------------------------
         # Install
         # -------------------------------
     
-        message(STATUS "BPM: Installing ${BPM_NAME}")
+        message(STATUS "BPM [${BPM_NAME}]: Installing ${BPM_NAME}")
         execute_process(
             COMMAND ${CMAKE_COMMAND}
             --install ${library_build_dir}
@@ -478,9 +494,9 @@ endfunction()
             RESULT_VARIABLE res
         )
         if(res EQUAL 0)
-            message(STATUS "BPM: Installing ${BPM_NAME} - done")
+            message(STATUS "BPM [${BPM_NAME}]: Installing ${BPM_NAME} - done")
         else() 
-            message(STATUS "BPM: Installing ${BPM_NAME} - failed")
+            message(STATUS "BPM [${BPM_NAME}]: Installing ${BPM_NAME} - failed")
         endif()
     
         # -------------------------------
@@ -510,14 +526,14 @@ endfunction()
             list(REMOVE_DUPLICATES package_names)
             
             message(STATUS "")
-            message(STATUS "BPM: Installed CMake package(s) for ${BPM_NAME}:")
+            message(STATUS "BPM [${BPM_NAME}]: Installed CMake package(s) for ${BPM_NAME}:")
             foreach(BPM ${package_names})
                 message(STATUS " - ${BPM}")
             endforeach()
             message(STATUS "")
         
         else()
-            message(WARNING "BPM: Installed, but no CMake package config files found.")
+            message(WARNING "BPM [${BPM_NAME}]: Installed, but no CMake package config files found.")
         endif()
     
         # -------------------------------
@@ -525,12 +541,12 @@ endfunction()
         # -------------------------------
         
         foreach(package IN LISTS BPM_PACKAGES)
-            message(STATUS "BPM: make available : ${BPM_NAME}: ${package}")
+            message(STATUS "BPM [${BPM_NAME}]: make available : ${BPM_NAME}: ${package}")
             find_package(${package} QUIET HINTS "${library_install_dir}")
             if(${package}_FOUND)
-                message(STATUS "BPM: make available : ${BPM_NAME}: ${package} - success")
+                message(STATUS "BPM [${BPM_NAME}]: make available : ${BPM_NAME}: ${package} - success")
             else()
-                message(STATUS "BPM: make available : ${BPM_NAME}: ${package} - failed")
+                message(STATUS "BPM [${BPM_NAME}]: make available : ${BPM_NAME}: ${package} - failed")
                 set(all_packages_found FALSE)
             endif()
         endforeach()
@@ -538,13 +554,13 @@ endfunction()
         # -------------------------------
         # Cleaning step
         # -------------------------------
-        message(STATUS "BPM: Clean working source dir")
+        message(STATUS "BPM [${BPM_NAME}]: Clean working source dir")
         file(REMOVE_RECURSE "${library_src_dir}")
-        message(STATUS "BPM: Clean working source dir - done")
+        message(STATUS "BPM [${BPM_NAME}]: Clean working source dir - done")
 
-        message(STATUS "BPM: Clean temporary build")
+        message(STATUS "BPM [${BPM_NAME}]: Clean temporary build")
         file(REMOVE_RECURSE "${library_build_dir}")
-        message(STATUS "BPM: Clean temporary build - done")
+        message(STATUS "BPM [${BPM_NAME}]: Clean temporary build - done")
 
     endif()
 endfunction()

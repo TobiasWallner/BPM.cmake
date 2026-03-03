@@ -61,6 +61,10 @@ export BPM_CACHE=/path/to/cache
 
 This allows multiple projects to reuse the same compiled binaries.
 
+Writing Libraries for BPM
+--------------------------
+
+BPM requires dependencies to provide proper CMake `install()` rules and `*Config.cmake` exports.
 
 🚀 Basic Usage
 ---------------
