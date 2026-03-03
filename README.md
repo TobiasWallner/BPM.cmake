@@ -44,10 +44,26 @@ Writing Libraries for BPM
 
 BPM requires dependencies to provide proper CMake `install()` rules and `*Config.cmake` exports.
 
+Get BPM.cmake
+--------------
+
+### Linux
+
+```bash
+curl -o cmake/BPM.cmake https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.2.0/BPM.cmake -L
+```
+
+### Windows
+
+```powershell
+mkdir cmake
+Invoke-WebRequest -Uri "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.2.0/BPM.cmake" -OutFile "cmake/BPM.cmake"
+```
+
 🚀 Basic Usage
 ---------------
 ```cmake
-include(BPM.cmake)
+include(cmake/BPM.cmake)
 
 BPMInstallPackage(
     NAME <name>
