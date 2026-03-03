@@ -3,30 +3,8 @@ BPM — Binary Package Manager for CMake
 
 BPM is a lightweight, CMake-native package manager that allows you to fetch, build, cache, and reuse CMake-based dependencies directly from Git repositories.
 
-It works entirely inside CMake — no Python, no external runtime, no registry required.
-
-BPM is designed for:
-
-- Deterministic builds
-- Local or shared binary caching
-- Git-based dependencies
-- Projects that want reproducible dependency builds without adopting a full external ecosystem
-
 ✨ Features
 ------------
-
-### 🔹 Git-Based Dependencies
-
-- Fetch dependencies directly from Git repositories
-- Supports tags, branches, or commit hashes
-- Fully supports recursive Git submodules
-
-### 🔹 Deterministic Binary Builds
-
-- BPM builds dependencies into content-addressed install directories.
-- BPM rebuilds automatically if: Compiler, compiler version, toolchain file, Git tag/commit, Build type, CMake arguments change. If none of these change, the binary is reused.
-- BPM resolves packages only from its computed install directory. It does not rely on system-wide installations
-- No External tooling required: just CMake
 
 ### 🔹 Content-Addressed Install Layout
 
@@ -133,13 +111,3 @@ build/
      └─ install/<HASH>/
         └─ <HASH>.manifest
 ```
-
-
-❓ What BPM Is Not
-------------------
-
-- Not a central package registry
-- Not a lockfile-based ecosystem
-- Not a prebuilt binary distribution system
-- Not a replacement for Conan/vcpkg in large-scale environments
-  - It is a lightweight, deterministic, Git-first dependency solution for CMake projects.
