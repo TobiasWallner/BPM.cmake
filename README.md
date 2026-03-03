@@ -99,6 +99,17 @@ or via environment variable:
 export BPM_CACHE=/path/to/cache
 ```
 
+or permanently on Linux:
+```bash
+echo 'export BPM_CACHE=/path/to/cache' >> ~/.bashrc
+```
+
+permanently on Windows:
+
+```powershell
+[Environment]::SetEnvironmentVariable("BPM_CACHE", "C:\path\to\cache", "User")
+```
+
 This allows multiple projects to reuse the same compiled binaries.
 
 The global cache is structured in the following way:
