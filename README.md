@@ -10,14 +10,15 @@ Get BPM.cmake
 ### Linux
 
 ```bash
-curl -o cmake/BPM.cmake https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.2.0/BPM.cmake -L
+mkdir cmake -p
+curl -o cmake/BPM.cmake https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.3.0/BPM.cmake -L
 ```
 
 ### Windows
 
 ```powershell
 mkdir cmake
-Invoke-WebRequest -Uri "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.2.0/BPM.cmake" -OutFile "cmake/BPM.cmake"
+Invoke-WebRequest -Uri "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.3.0/BPM.cmake" -OutFile "cmake/BPM.cmake"
 ```
 
 🚀 Basic Usage
@@ -32,6 +33,20 @@ BPMInstallPackage(
     GIT_TAG <version tag>
     BUILD_TYPE <type: Release/Debug>
     ARGS <Optional args>
+)
+
+target_link_libraries(my_target PRIVATE <library>)
+```
+
+```cmake
+include(cmake/BPM.cmake)
+
+BPMAddPackage(
+    NAME <name>
+    GIT_REPOSITORY <repo address>
+    GIT_TAG <version tag>
+    BUILD_TYPE <type: Release/Debug>
+    OPTIONS <Optional args>
 )
 
 target_link_libraries(my_target PRIVATE <library>)
@@ -82,9 +97,11 @@ And structured into the following layout
 build/
  └─ _deps/
      └─ <NAME>/
+         ├─ build/<HASH>/
+         ├─ install/<HASH>/
+         ├─ manifest/<HASH>.manifest
          ├─ mirror/
-         └─ install/<HASH>/
-            └─ <HASH>.manifest
+         └─ src/<GIT-COMMIT-HASH>/
 ```
 
 #### Global cache mode
@@ -114,12 +131,15 @@ permanently on Windows:
 This allows multiple projects to reuse the same compiled binaries.
 
 The global cache is structured in the following way:
+
 ```
 <BPM_CACHE>/
- └─ <NAME>/
-     ├─ mirror/
-     └─ install/<HASH>/
-        └─ <HASH>.manifest
+    └─ <NAME>/
+        ├─ build/<HASH>/
+        ├─ install/<HASH>/
+        ├─ manifest/<HASH>.manifest
+        ├─ mirror/
+        └─ src/<GIT-COMMIT-HASH>/
 ```
 
 Writing Libraries for BPM
