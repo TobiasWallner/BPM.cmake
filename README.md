@@ -23,6 +23,8 @@ Invoke-WebRequest -Uri "https://github.com/TobiasWallner/BPM.cmake/releases/down
 
 🚀 Basic Usage
 ---------------
+
+Add packages by cloning --> building --> installing them and inplicitly using `find_package`.
 ```cmake
 include(cmake/BPM.cmake)
 
@@ -38,6 +40,7 @@ BPMInstallPackage(
 target_link_libraries(my_target PRIVATE <library>)
 ```
 
+Add packages by cloning --> building them and inplicitly using `add_subdirectory`.
 ```cmake
 include(cmake/BPM.cmake)
 
