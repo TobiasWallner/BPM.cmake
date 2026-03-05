@@ -490,6 +490,10 @@ function(BPMInstallPackage)
         set(BPM_BUILD_TYPE Release)
     endif()
 
+    if(DEFINED BPM_${BPM_NAME}_ADDED)
+        return()
+    endif()
+
     # -------------------------------
     # Define Cache Location
     # -------------------------------
@@ -672,11 +676,174 @@ function(BPMInstallPackage)
 
         # clean source directory, we don't really need it and it is ofthen 10 times larger than the mirror, build or install directory
 
-        message(STATUS "BPM [${BPM_NAME}]: Clean working source dir")
-        file(REMOVE_RECURSE "${library_src_dir}")
-        message(STATUS "BPM [${BPM_NAME}]: Clean working source dir - done")
+        # message(STATUS "BPM [${BPM_NAME}]: Clean working source dir")
+        # file(REMOVE_RECURSE "${library_src_dir}")
+        # message(STATUS "BPM [${BPM_NAME}]: Clean working source dir - done")
 
     endif()
+
+    set(BPM_${BPM_NAME}_ADDED ON PARENT_SCOPE)
 endfunction()
 
 
+
+function(BPMAddPackage)
+    
+    # -------------------------------
+    # Parse Arguments
+    # -------------------------------
+    set(options QUIET)
+
+    set(oneValueArgs
+        NAME
+        GIT_REPOSITORY
+        GIT_TAG
+        BUILD_TYPE
+    )
+    
+    set(multiValueArgs
+        OPTIONS
+        TRANSITIVE_COMPILER_FLAGS
+    )
+    
+    cmake_parse_arguments(BPM
+    "${options}"
+    "${oneValueArgs}"
+    "${multiValueArgs}"
+    ${ARGN}
+    )
+
+    # -------------------------------
+    # Validate Required Arguments
+    # -------------------------------
+    if(BPM_QUIET)
+        set(find_package_quiet "QUIET")
+        set(execute_process_quiet "OUTPUT_QUIET")
+    else()
+        set(find_package_quiet "")
+        set(execute_process_quiet "")
+    endif()
+
+    if(NOT BPM_NAME)
+        message(FATAL_ERROR "BPM [${BPM_NAME}]: NAME is required")
+    endif()
+    
+    if(NOT BPM_GIT_REPOSITORY)
+        message(FATAL_ERROR "BPM [${BPM_NAME}]: GIT_REPOSITORY is required")
+    endif()
+    
+    if(NOT BPM_BUILD_TYPE)
+        set(BPM_BUILD_TYPE Release)
+    endif()
+
+    if(DEFINED BPM_${BPM_NAME}_ADDED)
+        return()
+    endif()
+
+    # -------------------------------
+    # Define Cache Location
+    # -------------------------------
+
+    # guard around `BPM_CACHE` so that `bpm_resolve_var` runs the first time and every time when `BPM_CACHE` changes
+    if(NOT BPM_CACHE_RESOLVED)
+        set(BPM_CACHE_RESOLVED TRUE PARENT_SCOPE)
+        bpm_resolve_var(BPM_CACHE)
+    endif()
+
+    if(NOT BPM_CACHE)
+        set(bpm_cache_base_dir "${CMAKE_BINARY_DIR}/_deps/${BPM_NAME}")
+    else()
+        set(bpm_cache_base_dir "${BPM_CACHE}/${BPM_NAME}")
+    endif()
+
+    # -------------------------------
+    # Define Mirror Dir
+    # -------------------------------
+
+    set(library_mirror_dir "${bpm_cache_base_dir}/mirror")
+    
+    # -------------------------------
+    # Clone/fetch repository
+    # -------------------------------
+
+    bpm_clone_repository_if_needed("${BPM_NAME}" "${BPM_GIT_REPOSITORY}" "${library_mirror_dir}" "${execute_process_quiet}")
+    bpm_verify_git_tag("${BPM_NAME}" "${BPM_GIT_TAG}" "${library_mirror_dir}" "${execute_process_quiet}" BPM_GIT_COMMIT)
+
+    string(SUBSTRING "${BPM_GIT_COMMIT}" 0 16 BPM_GIT_COMMIT_SHORT)
+    set(library_src_dir "${bpm_cache_base_dir}/src/${BPM_GIT_COMMIT_SHORT}/")
+
+    # -------------------------------
+    # create manifest
+    # -------------------------------
+
+    # sort arguments before appending
+    set(_sorted_args "${BPM_ARGS}")
+    list(SORT _sorted_args)
+    string(JOIN ";" _sorted_args_string ${_sorted_args})
+    set(BPM_ARGS_SORTED "${_sorted_args_string}")
+
+    file(SHA256 "${CMAKE_C_COMPILER}" C_COMPILER_HASH)
+    file(SHA256 "${CMAKE_CXX_COMPILER}" CXX_COMPILER_HASH)
+
+    bpm_create_manifest(manifest MANIFEST_HASH 
+        CMAKE_C_COMPILER_ID
+        C_COMPILER_HASH
+        CMAKE_C_COMPILER_VERSION
+        CMAKE_CXX_COMPILER_ID
+        CXX_COMPILER_HASH
+        CMAKE_CXX_COMPILER_VERSION
+        CMAKE_SYSTEM_NAME
+        CMAKE_SYSTEM_PROCESSOR
+        CMAKE_VERSION
+        TOOLCHAIN_HASH
+        BPM_GIT_COMMIT
+        BPM_NAME
+        BPM_GIT_REPOSITORY
+        BPM_GIT_TAG
+        BPM_BUILD_TYPE
+        BPM_ARGS_SORTED
+    ) 
+
+    string(SUBSTRING "${MANIFEST_HASH}" 0 16 SHORT_HASH)
+
+    # -------------------------------
+    # Define hashed directories
+    # -------------------------------
+
+    set(library_build_dir "${bpm_cache_base_dir}/build/${SHORT_HASH}")
+    set(manifest_dir "${bpm_cache_base_dir}/manifest")
+    set(manifest_file_path "${bpm_cache_base_dir}/manifest/${SHORT_HASH}.manifest")
+
+    if(NOT EXISTS ${manifest_dir})
+        file(MAKE_DIRECTORY "${manifest_dir}")
+    endif()
+
+    if(NOT EXISTS ${manifest_file_path})
+        file(WRITE "${manifest_file_path}" "${manifest}")
+    endif()
+
+    # -------------------------------
+    # Install Repository (if needed)
+    # -------------------------------
+    
+    if(NOT EXISTS "${library_src_dir}/.git")
+        # clone mirror into source dir
+        bpm_clone_from_mirror("${BPM_NAME}" "${library_mirror_dir}" "${library_src_dir}" "${BPM_GIT_TAG}" "${execute_process_quiet}")
+    endif()
+
+    foreach(opt ${OPTIONS})
+
+        # split "NAME=VALUE" → NAME;VALUE
+        string(REPLACE "=" ";" opt_parts "${opt}")
+
+        list(GET opt_parts 0 opt_name)
+        list(GET opt_parts 1 opt_value)
+
+        # force set cache variable
+        set(${opt_name} "${opt_value}" CACHE BOOL "" FORCE)
+
+    endforeach()
+    add_subdirectory("${library_src_dir}" "${library_build_dir}")
+
+    set(BPM_${BPM_NAME}_ADDED ON PARENT_SCOPE)
+endfunction()
