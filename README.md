@@ -45,6 +45,7 @@ target_link_libraries(my_target PRIVATE <library>)
 - `GIT_REPOSITORY`: Git repository URL
 
 #### Optional
+- `QUIET`: Flag to hide output of sub commands
 - `GIT_TAG`: Tag, branch, or commit
 - `BUILD_TYPE`: Release / Debug / etc (default: Release)
 - `ARGS`: Additional -D flags forwarded to the dependency
