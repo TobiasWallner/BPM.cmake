@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 # ==============================================================================
-# BPMInstallPackage
+# BPMCreateInstallPackage
 # ==============================================================================
 #
 # Description:
@@ -16,25 +16,7 @@ cmake_minimum_required(VERSION 3.20)
 #     - Toolchain and compiler fingerprinting
 #     - Content-addressed binary installs (SHA256-based)
 #     - Deterministic and isolated find_package resolution
-#     - Transitive toolchains  
-#
-#   Each dependency is installed into a directory derived from a manifest hash
-#   that includes:
-#
-#     - Compiler identity and binary hash
-#     - Compiler version
-#     - System information
-#     - CMake version
-#     - Toolchain file hash (if provided)
-#     - Dependency name
-#     - Git repository URL
-#     - Git tag / commit
-#     - Build type
-#     - Additional CMake arguments (ARGS)
-#
-#   If an identical configuration has already been built, the existing
-#   installation is reused. Otherwise, a new isolated build is performed.
-#
+#     - Transitive toolchains
 #
 # Workflow:
 # ---------
@@ -56,24 +38,6 @@ cmake_minimum_required(VERSION 3.20)
 #        - The temporary source and build directories are removed.
 #
 #   5. The installed packages are made available via find_package().
-#
-#
-# Caching Behavior:
-# -----------------
-#   Two cache modes are supported:
-#
-#   • Local (default)
-#       Uses:
-#         <build>/_deps/<NAME>/
-#
-#   • External cache (via -DBPM_CACHE=<path> or environment variable)
-#       Installs into:
-#         <BPM_CACHE>/<NAME>/install/<HASH>/
-#       Mirrors stored in:
-#         <BPM_CACHE>/<NAME>/mirror/
-#
-#   Install directories are immutable and content-addressed.
-#
 #
 # Required Arguments:
 # -------------------
@@ -101,7 +65,7 @@ cmake_minimum_required(VERSION 3.20)
 #       Build configuration (e.g. Release, Debug).
 #       Default: Release
 #
-#   ARGS <list>
+#   OPTIONS <list>
 #       Additional -D arguments forwarded to the dependency’s
 #       CMake configure step.
 #
@@ -126,7 +90,7 @@ cmake_minimum_required(VERSION 3.20)
 #
 # Example:
 # --------
-#   BPMInstallPackage(
+#   BPMCreateInstallPackage(
 #       NAME paho.mqtt.cpp
 #       PACKAGES PahoMqttCpp
 #       GIT_REPOSITORY https://github.com/eclipse-paho/paho.mqtt.cpp
@@ -436,7 +400,7 @@ endfunction()
 # - Configures, builds and installs each library in its own folder, seperated by the config hashes
 # - Uses find package to make the packages of the libraries available
 #
-function(BPMInstallPackage)
+function(BPMCreateInstallPackage)
     
     # -------------------------------
     # Parse Arguments
@@ -452,8 +416,7 @@ function(BPMInstallPackage)
     
     set(multiValueArgs
         PACKAGES
-        ARGS
-        TRANSITIVE_COMPILER_FLAGS
+        OPTIONS
     )
     
     cmake_parse_arguments(BPM
@@ -490,8 +453,15 @@ function(BPMInstallPackage)
         set(BPM_BUILD_TYPE Release)
     endif()
 
-    if(DEFINED BPM_${BPM_NAME}_ADDED)
+    if(BPM_${BPM_NAME}_ADDED)
         return()
+    endif()
+
+    set(BPM_ARGS "")
+    if(BPM_OPTIONS)
+        foreach(opt IN LISTS BPM_OPTIONS)
+            list(APPEND BPM_ARGS "-D${opt}")
+        endforeach()
     endif()
 
     # -------------------------------
@@ -531,10 +501,10 @@ function(BPMInstallPackage)
     # -------------------------------
 
     # sort arguments before appending
-    set(_sorted_args "${BPM_ARGS}")
-    list(SORT _sorted_args)
-    string(JOIN ";" _sorted_args_string ${_sorted_args})
-    set(BPM_ARGS_SORTED "${_sorted_args_string}")
+    set(_sorted_options "${BPM_OPTIONS}")
+    list(SORT _sorted_options)
+    string(JOIN ";" _sorted_options_string ${_sorted_options})
+    set(BPM_OPTIONS_SORTED "${_sorted_options_string}")
 
     file(SHA256 "${CMAKE_C_COMPILER}" C_COMPILER_HASH)
     file(SHA256 "${CMAKE_CXX_COMPILER}" CXX_COMPILER_HASH)
@@ -555,7 +525,7 @@ function(BPMInstallPackage)
         BPM_GIT_REPOSITORY
         BPM_GIT_TAG
         BPM_BUILD_TYPE
-        BPM_ARGS_SORTED
+        BPM_OPTIONS
     ) 
 
     string(SUBSTRING "${MANIFEST_HASH}" 0 16 SHORT_HASH)
@@ -635,7 +605,7 @@ function(BPMInstallPackage)
         
             set(package_names "")
             
-            foreach(config_file ${config_files})
+            foreach(config_file IN LISTS config_files)
             
                 # Get directory containing the Config.cmake
                 get_filename_component(config_dir "${config_file}" DIRECTORY)
@@ -652,7 +622,7 @@ function(BPMInstallPackage)
             
             message(STATUS "")
             message(STATUS "BPM [${BPM_NAME}]: Installed CMake package(s) for ${BPM_NAME}:")
-            foreach(BPM ${package_names})
+            foreach(BPM IN LISTS package_names)
                 message(STATUS " - ${BPM}")
             endforeach()
             message(STATUS "")
@@ -736,7 +706,7 @@ function(BPMAddPackage)
         set(BPM_BUILD_TYPE Release)
     endif()
 
-    if(DEFINED BPM_${BPM_NAME}_ADDED)
+    if(BPM_${BPM_NAME}_ADDED)
         return()
     endif()
 
@@ -777,10 +747,10 @@ function(BPMAddPackage)
     # -------------------------------
 
     # sort arguments before appending
-    set(_sorted_args "${BPM_ARGS}")
-    list(SORT _sorted_args)
-    string(JOIN ";" _sorted_args_string ${_sorted_args})
-    set(BPM_ARGS_SORTED "${_sorted_args_string}")
+    set(_sorted_options "${BPM_OPTIONS}")
+    list(SORT _sorted_options)
+    string(JOIN ";" _sorted_options_string ${_sorted_options})
+    set(BPM_OPTIONS_SORTED "${_sorted_options_string}")
 
     file(SHA256 "${CMAKE_C_COMPILER}" C_COMPILER_HASH)
     file(SHA256 "${CMAKE_CXX_COMPILER}" CXX_COMPILER_HASH)
@@ -801,7 +771,7 @@ function(BPMAddPackage)
         BPM_GIT_REPOSITORY
         BPM_GIT_TAG
         BPM_BUILD_TYPE
-        BPM_ARGS_SORTED
+        BPM_OPTIONS_SORTED
     ) 
 
     string(SUBSTRING "${MANIFEST_HASH}" 0 16 SHORT_HASH)
@@ -831,7 +801,7 @@ function(BPMAddPackage)
         bpm_clone_from_mirror("${BPM_NAME}" "${library_mirror_dir}" "${library_src_dir}" "${BPM_GIT_TAG}" "${execute_process_quiet}")
     endif()
 
-    foreach(opt ${OPTIONS})
+    foreach(opt IN LISTS BPM_OPTIONS)
 
         # split "NAME=VALUE" → NAME;VALUE
         string(REPLACE "=" ";" opt_parts "${opt}")
@@ -840,7 +810,7 @@ function(BPMAddPackage)
         list(GET opt_parts 1 opt_value)
 
         # force set cache variable
-        set(${opt_name} "${opt_value}" CACHE BOOL "" FORCE)
+        set(${opt_name} "${opt_value}" CACHE STRING "" FORCE)
 
     endforeach()
     add_subdirectory("${library_src_dir}" "${library_build_dir}")

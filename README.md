@@ -12,12 +12,12 @@ Usage Examples:
 
 Shorthand:
 ```cmake
-BPMCreatePackage("https://github.com/fmtlib/fmt@12.1.0")
+BPMCreateInstallPackage("https://github.com/fmtlib/fmt@12.1.0")
 ```
 
 Long form
 ```cmake
-BPMCreatePackage(
+BPMCreateInstallPackage(
     NAME fmt
     GIT_REPOSITORY 
     GIT_TAG 12.1.0
@@ -59,32 +59,32 @@ Git-Tags and Commit-Hashes can optionally have a constraint qualifiers:
 
 The following are allowed:
 ```cmake
-BPMCreatePackage(https://github.com/org/repo@1.2.3)
-BPMCreatePackage(https://github.com/org/repo@v1.2.3)
-BPMCreatePackage(https://github.com/org/repo@>=1.2.3)
-BPMCreatePackage(https://github.com/org/repo@^1.2.3)
-BPMCreatePackage(https://github.com/org/repo@~1.2.3)
-BPMCreatePackage(https://github.com/org/repo@=1.2.3)
-BPMCreatePackage(https://github.com/org/repo@>=v1.2.3)
-BPMCreatePackage(https://github.com/org/repo@^v1.2.3)
-BPMCreatePackage(https://github.com/org/repo@~v1.2.3)
-BPMCreatePackage(https://github.com/org/repo@=v1.2.3)
-BPMCreatePackage(https://github.com/org/repo@git-tag)
-BPMCreatePackage(https://github.com/org/repo@>=git-tag)
-BPMCreatePackage(https://github.com/org/repo@=git-tag)
-BPMCreatePackage(https://github.com/org/repo@>=commit-hash)
-BPMCreatePackage(https://github.com/org/repo@=commit-hash)
+BPMAddInstallPackage(https://github.com/org/repo@1.2.3)
+BPMAddInstallPackage(https://github.com/org/repo@v1.2.3)
+BPMAddInstallPackage(https://github.com/org/repo@>=1.2.3)
+BPMAddInstallPackage(https://github.com/org/repo@^1.2.3)
+BPMAddInstallPackage(https://github.com/org/repo@~1.2.3)
+BPMAddInstallPackage(https://github.com/org/repo@=1.2.3)
+BPMAddInstallPackage(https://github.com/org/repo@>=v1.2.3)
+BPMAddInstallPackage(https://github.com/org/repo@^v1.2.3)
+BPMAddInstallPackage(https://github.com/org/repo@~v1.2.3)
+BPMAddInstallPackage(https://github.com/org/repo@=v1.2.3)
+BPMAddInstallPackage(https://github.com/org/repo@git-tag)
+BPMAddInstallPackage(https://github.com/org/repo@>=git-tag)
+BPMAddInstallPackage(https://github.com/org/repo@=git-tag)
+BPMAddInstallPackage(https://github.com/org/repo@>=commit-hash)
+BPMAddInstallPackage(https://github.com/org/repo@=commit-hash)
 ```
 
 The following are not allowed:
 ```
-BPMCreatePackage(https://github.com/org/repo)
+BPMAddInstallPackage(https://github.com/org/repo)
 https://github.com/org/repo@^git-tag
 https://github.com/org/repo@~git-tag
 https://github.com/org/repo@^a5486b
 https://github.com/org/repo@~a5486b
-BPMCreatePackage(https://github.com/org/repo@^commit-hash)
-BPMCreatePackage(https://github.com/org/repo@~commit-hash)
+BPMAddInstallPackage(https://github.com/org/repo@^commit-hash)
+BPMAddInstallPackage(https://github.com/org/repo@~commit-hash)
 ```
 
 ### Long form
@@ -104,10 +104,10 @@ BPMCreatePackage(https://github.com/org/repo@~commit-hash)
 
 
 
-BPMCreatePackage
+BPMCreateInstallPackage
 =================
 
-`BPMCreatePackage()` is a small convenience wrapper around the standard CMake install/export/package steps for a library package.
+`BPMCreateInstallPackage()` is a small convenience wrapper around the standard CMake install/export/package steps for a library package.
 
 What it does
 -------------
@@ -123,7 +123,7 @@ It takes one or more already-defined library targets and sets up the usual packa
 Library Structure Assumptions
 -----------------------------
 
-`BPMCreatePackage()` assumes that:
+`BPMCreateInstallPackage()` assumes that:
 - your librarys public include directory is `include/`.
 - your targets already describe the correct build-time and install-time include paths:
   ```cmake
@@ -148,7 +148,7 @@ target_include_directories(<target> PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 
-BPMCreatePackage(<target>)
+BPMCreateInstallPackage(<target>)
 ```
 
 Equivalent to:
@@ -167,13 +167,15 @@ target_include_directories(<target> PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 
-BPMCreatePackage(
+BPMCreateInstallPackage(
     NAME <package-name>
     [NAMESPACE <namespace>]
     LIBRARIES <target> [<target> ...]
     [HEADER_FILES_MATCHING <pattern> [<pattern> ...]]
 )
 ```
+
+#### Required Arguments
 
 - `NAME`: required | exactly 1 argument  
   - package name used for:
@@ -185,10 +187,19 @@ BPMCreatePackage(
   - each argument must be an existing CMake target (from `add_library` or `add_executable`)
   - Targets that will be installed and exported into the package
 
+#### Optional Arguments
 
 - `NAMESPACE`: optional | exactly 1 argument  
   - namespace prefix for exported targets
   - Default if omitted: `NAMESPACE=<NAME>`
 
+- `PUBLIC_INCLUDE_DIRS`: optional | 0 or more
+  - Public include directories that should be installed
+  - Default if omitted: `include/`
+
 - `HEADER_FILES_MATCHING`: optional | 1 or more arguments
+  - Structure of header files to install
   - Default if omitted: `*.h`, `*.hh`, `*.hpp`, `*.hxx`
+
+
+TODO: add input argument that lets you specify the public header folder to something different than `include/` (also allow multiple)
