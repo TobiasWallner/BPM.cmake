@@ -1,169 +1,103 @@
-BPM — Binary Package Manager for CMake
-======================================
+BPM - Binary Package Manager
+============================
 
-BPM is a lightweight, CMake-native package manager that allows you to fetch, build, cache, and reuse CMake-based dependencies directly from Git repositories.
+BPM is a CMake-native package manager that allows you to fetch, build, cache, and reuse CMake-based dependencies directly from Git repositories.
 
+Dependencies:
+-------------
+- CMake: https://cmake.org/
 
-Get BPM.cmake
---------------
-
-### Linux
-
-```bash
-mkdir cmake -p
-curl -o cmake/BPM.cmake https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.3.0/BPM.cmake -L
-```
-
-### Windows
-
-```powershell
-mkdir cmake
-Invoke-WebRequest -Uri "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.3.0/BPM.cmake" -OutFile "cmake/BPM.cmake"
-```
-
-🚀 Basic Usage
+Usage Examples:
 ---------------
 
-Add packages by cloning --> building --> installing them and inplicitly using `find_package`.
+Shorthand:
 ```cmake
-include(cmake/BPM.cmake)
-
-BPMInstallPackage(
-    NAME <name>
-    PACKAGES <packages for find_package>
-    GIT_REPOSITORY <repo address>
-    GIT_TAG <version tag>
-    BUILD_TYPE <type: Release/Debug>
-    ARGS <Optional args>
-)
-
-target_link_libraries(my_target PRIVATE <library>)
+BPMCreatePackage("https://github.com/fmtlib/fmt@12.1.0")
 ```
 
-Add packages by cloning --> building them and inplicitly using `add_subdirectory`.
+Long form
 ```cmake
-include(cmake/BPM.cmake)
-
-BPMAddPackage(
-    NAME <name>
-    GIT_REPOSITORY <repo address>
-    GIT_TAG <version tag>
-    BUILD_TYPE <type: Release/Debug>
-    OPTIONS <Optional args>
+BPMCreatePackage(
+    NAME fmt
+    GIT_REPOSITORY 
+    GIT_TAG 12.1.0
 )
-
-target_link_libraries(my_target PRIVATE <library>)
 ```
 
-### Supported Options
+Detailed Usage:
+---------------
 
-#### Required
-- `NAME`: Logical dependency name
-- `PACKAGES`: CMake package names to expose
-- `GIT_REPOSITORY`: Git repository URL
+### Short form
 
-#### Optional
-- `QUIET`: Flag to hide output of sub commands
-- `GIT_TAG`: Tag, branch, or commit
-- `BUILD_TYPE`: Release / Debug / etc (default: Release)
-- `ARGS`: Additional -D flags forwarded to the dependency
-
-#### Implicit
-- `CMAKE_TOOLCHAIN_FILE`:  A toolchain file required at the top level. Will be passed transitively to all packages.
-
-✨ Features
-------------
-
-### 🔹 Content-Addressed Install Layout
-
-Each build is stored under a unique hash derived from its configuration (Compiler, CPU, Flags, Toolchain, ...).
-
-This means:
-
-- No accidental overwriting
-- No cross-project contamination
-- Safe reuse of identical builds
-- Multiple configurations can coexist
-
-### 🔹 Local or Global Cache
-
-#### Default (local mode)
-
-By default, dependencies are installed into:
+The general idea is:
 
 ```
-<build>/_deps/
+path/name@<version|git-tag|commit-hash>
 ```
 
-And structured into the following layout
-```
-build/
- └─ _deps/
-     └─ <NAME>/
-         ├─ build/<HASH>/
-         ├─ install/<HASH>/
-         ├─ manifest/<HASH>.manifest
-         ├─ mirror/
-         └─ src/<GIT-COMMIT-HASH>/
-```
+- The repository name will be infered from the last path segment
+- The repository package (if it is an installation target) will be infered from the name or the optional `PACKAGES`
+- The version will be infered from the string after the `@`
+- Optionally allows to specify `PACKAGES`
+- Optionally allows to specify `OPTIONS` that will be passed as flags to the package
 
-#### Global cache mode
-You can optionally enable a shared/global cache:
 
-```bash
-cmake -S . -B buil -DBPM_CACHE=/path/to/cache
-```
+The version can be:
+- `1.2.3`: Major.Minor.Patch version numbers
+- `v1.2.3`: Optionally have a leading `v`
+- `>=v1.2.3`: Optionally with a leading constraint qualifier
 
-or via environment variable:
+Version can optionally have a constraint qualifiers:
+- `>=`: This version or a greater major, minor or patch number
+- `^`: This version or one with a greater minor or patch number
+- `~`: This version or one with a greater patch number
+- `=`: Exactly this version (default if none is provided)
 
-```bash
-export BPM_CACHE=/path/to/cache
-```
+Git-Tags and Commit-Hashes can optionally have a constraint qualifiers:
+- `>=`: This version or a greater major, minor or patch number
+- `=`: Exactly this version (default if none is provided)
 
-or permanently on Linux:
-```bash
-echo 'export BPM_CACHE=/path/to/cache' >> ~/.bashrc
-```
-
-permanently on Windows:
-
-```powershell
-[Environment]::SetEnvironmentVariable("BPM_CACHE", "C:\path\to\cache", "User")
-```
-
-This allows multiple projects to reuse the same compiled binaries.
-
-The global cache is structured in the following way:
-
-```
-<BPM_CACHE>/
-    └─ <NAME>/
-        ├─ build/<HASH>/
-        ├─ install/<HASH>/
-        ├─ manifest/<HASH>.manifest
-        ├─ mirror/
-        └─ src/<GIT-COMMIT-HASH>/
+The following are allowed:
+```cmake
+BPMCreatePackage(https://github.com/org/repo@1.2.3)
+BPMCreatePackage(https://github.com/org/repo@v1.2.3)
+BPMCreatePackage(https://github.com/org/repo@>=1.2.3)
+BPMCreatePackage(https://github.com/org/repo@^1.2.3)
+BPMCreatePackage(https://github.com/org/repo@~1.2.3)
+BPMCreatePackage(https://github.com/org/repo@=1.2.3)
+BPMCreatePackage(https://github.com/org/repo@>=v1.2.3)
+BPMCreatePackage(https://github.com/org/repo@^v1.2.3)
+BPMCreatePackage(https://github.com/org/repo@~v1.2.3)
+BPMCreatePackage(https://github.com/org/repo@=v1.2.3)
+BPMCreatePackage(https://github.com/org/repo@git-tag)
+BPMCreatePackage(https://github.com/org/repo@>=git-tag)
+BPMCreatePackage(https://github.com/org/repo@=git-tag)
+BPMCreatePackage(https://github.com/org/repo@>=commit-hash)
+BPMCreatePackage(https://github.com/org/repo@=commit-hash)
 ```
 
-Writing Libraries for BPM
---------------------------
+The following are not allowed:
+```
+BPMCreatePackage(https://github.com/org/repo)
+https://github.com/org/repo@^git-tag
+https://github.com/org/repo@~git-tag
+https://github.com/org/repo@^a5486b
+https://github.com/org/repo@~a5486b
+BPMCreatePackage(https://github.com/org/repo@^commit-hash)
+BPMCreatePackage(https://github.com/org/repo@~commit-hash)
+```
 
-BPM requires dependencies to provide proper CMake `install()` rules and `*Config.cmake` exports.
+### Long form
+
+#### Required Arguments
+- `NAME`: The name of the repository
+- `REPOSITORY`: The path of the repository
+- `GIT_TAG`: The tag to check out. Can be a named tag `tag1`, a version tag (`v`)`1.2.3` or a commit hash `407c905e45ad75fc29bf0f9bb7c5c2fd3475976f`. optionally with a constraint: `>=`, `^`, `~`, `=`
+
+#### Optional Arguments
+- `PACKAGES`: Specifies the installed packages that will be loaded. If non are provided, the packages `NAME` will be assumed as the only installed package name
+- `OPTIONS`: Options that will be passed to the packages `CMakeLists.txt`
+- `QUIET`: Will hide the output of commands
+- `BUILD_TYPE`: The build type: Release or Debug
 
 
-📦 What Happens Automatically
--------------------------------
-
-When BPMInstallPackage() is called:
-
-- The dependency configuration is fingerprinted.
-- BPM checks whether a matching binary already exists.
-- If found → it is reused. If not: The Git repository is cloned (using a local mirror).
-- The requested tag/commit is checked out.
-- Submodules are initialized.
-- The project is configured, built, and installed.
-- The package is made available via `find_package()`.
-- Temporary build directories are cleaned automatically.
-
-
-  

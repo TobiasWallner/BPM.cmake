@@ -341,8 +341,7 @@ endfunction()
 # )
 # ```
 
-function(BPMInstallPackage)
-    message(STATUS "ARGN: ${ARGN}")
+function(BPMAddInstallPackage)
     bpm_parse_arguments("${ARGN}" PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG_BUILD_TYPE PKG_OPTIONS PKG_PACKAGES PKG_QUIET PKG_VERSION_QUALIFIER PKG_V_MAJOR PKG_V_MINOR PKG_V_PATCH)
 
 
@@ -406,7 +405,7 @@ function(BPMInstallPackage)
 
 endfunction()
 
-function(BPMAddPackage)
+function(BPMAddSourcePackage)
 
     bpm_parse_arguments("${ARGN}" PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG_BUILD_TYPE PKG_OPTIONS PKG_PACKAGES PKG_QUIET PKG_VERSION_QUALIFIER PKG_V_MAJOR PKG_V_MINOR PKG_V_PATCH)
 
@@ -418,7 +417,6 @@ endfunction()
 function(bpm_write_registry_file)
 
     get_property(BPM_REGISTRY_ GLOBAL PROPERTY BPM_REGISTRY)
-    message(STATUS "BPM_REGISTRY_: ${BPM_REGISTRY_}")
     foreach(pkg_name IN LISTS BPM_REGISTRY_)
         get_property(pkg_v_qualifier GLOBAL PROPERTY BPM_REGISTRY_${pkg_name}_VERSION_QUALIFIER)
         get_property(pkg_v_qualifier_setter GLOBAL PROPERTY BPM_REGISTRY_${pkg_name}_VERSION_QUALIFIER_LAST_SET_BY)
@@ -429,7 +427,6 @@ function(bpm_write_registry_file)
         get_property(pkg_install GLOBAL PROPERTY BPM_REGISTRY_${pkg_name}_INSTALL)
 
         set(write_string "NAME ${pkg_name} QUALIFIER ${pkg_v_qualifier} QUALIFIER_SETTER ${pkg_v_qualifier_setter} VERSION_MAJOR ${pkg_major} VERSION_MINOR ${pkg_minor} VERSION_PATCH ${pkg_patch} VERSION_SETTER ${pkg_version_setter} INSTALL ${pkg_install}")
-        message(STATUS "write registry entry: ${write_string}")
         file(APPEND "${CMAKE_BINARY_DIR}/BPM/BPM_REGISTRY" "${write_string}\n")
 
     endforeach()
@@ -447,4 +444,102 @@ function(BPMMakeAvailable)
         endforeach()
     endif()
 
+endfunction()
+
+
+
+
+# -----------------------------------------------------
+#                   Install
+# -----------------------------------------------------
+
+function(BPMCreatePackage)
+    include(CMakePackageConfigHelpers)
+
+    if(ARGC EQUAL 1)
+        # infere everything from the passed library target
+        set(PKG_NAME ${ARGV0})
+        set(PKG_NAMESPACE ${ARGV0})
+        set(PKG_LIBRARIES ${ARGV0})
+    else()
+        # provide specific arguments
+        set(options "")
+        set(oneValueArgs NAME NAMESPACE)
+        set(multiValueArgs LIBRARIES HEADER_FILES_MATCHING)
+        cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+    endif()
+
+    if(NOT PKG_NAME)
+        message(FATAL_ERROR "BPMInstall: No NAME provided for the package")
+    endif()
+
+    
+    if(NOT PKG_LIBRARIES)
+        message(FATAL_ERROR "BPMInstall [${PKG_NAME}]: No LIBRARIES provided for the package")
+    endif()
+    
+    if(NOT PKG_NAMESPACE)
+        set(PKG_NAMESPACE ${PROJECT_NAME})
+    endif()
+
+    if(NOT PKG_HEADER_FILES_MATCHING)
+        set(PKG_HEADER_FILES_MATCHING "*.h" "*.hh" "*.hpp" "*.hxx")
+    endif()
+
+    install(TARGETS ${PKG_LIBRARIES}
+        EXPORT ${PKG_NAME}_export_set
+        ARCHIVE DESTINATION lib
+        LIBRARY DESTINATION lib
+        RUNTIME DESTINATION bin
+        INCLUDES DESTINATION include
+    )
+    
+    set(files_matching "")
+    foreach(m IN LISTS PKG_HEADER_FILES_MATCHING)
+        LIST(APPEND files_matching "PATTERN" )
+        LIST(APPEND files_matching "${m}")
+    endforeach()
+    
+    install(
+        DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/"
+        DESTINATION "include/"
+        FILES_MATCHING ${files_matching}
+    )
+
+    install(EXPORT ${PKG_NAME}_export_set
+        FILE "${PKG_NAME}Targets.cmake"
+        NAMESPACE "${PKG_NAMESPACE}::"
+        DESTINATION "lib/cmake/${PKG_NAME}"
+    )
+
+    set(config_file_in "${CMAKE_CURRENT_BINARY_DIR}/${PKG_NAME}Config.cmake.in")
+    set(config_file "${CMAKE_CURRENT_BINARY_DIR}/${PKG_NAME}Config.cmake")
+    set(version_file "${CMAKE_CURRENT_BINARY_DIR}/${PKG_NAME}ConfigVersion.cmake")
+    file(WRITE "${config_file_in}" "@PACKAGE_INIT@\n\ninclude(\"\${CMAKE_CURRENT_LIST_DIR}/${PKG_NAME}Targets.cmake\")\n")
+
+    configure_package_config_file(
+        "${config_file_in}"
+        "${config_file}"
+        INSTALL_DESTINATION "lib/cmake/${PKG_NAME}"
+    )
+
+    install(FILES
+        "${config_file}"
+        DESTINATION "lib/cmake/${PKG_NAME}"
+    )
+
+    if(PROJECT_VERSION)
+        write_basic_package_version_file(
+            "${version_file}"
+            VERSION "${PROJECT_VERSION}"
+            COMPATIBILITY SameMajorVersion
+        )
+
+        install(FILES
+            "${version_file}"
+            DESTINATION "lib/cmake/${PKG_NAME}"
+        )
+    endif()
+
+    
 endfunction()
