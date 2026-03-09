@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 
-# @parses a constraint + version string into a list of elements.
+# @parses a constraint + version string into a closed-open range of allowed version
 # 
-# input: >=1.2.3 --> output: LIST >=;1;2;3
-# input: >=
-function(bpm_parse_version_string INPUT out_version)
+# input: >=1.2.3 --> output: LIST 1.2.3;inf.inf.inf -- meaning: from version 1.2.3 to upper bound inf.inf.inf
+# input: ^1.2.3 --> output: LIST 1.2.3;2.0.0 -- meaning from version 1.2.3 to upper bound 2.0.0
+function(bpm_parse_version_string INPUT out_version_range)
     string(REPLACE ";" "\\;" SAFE_INPUT "${INPUT}")
 
     set(VERSION_QUALIFIER "")
@@ -29,8 +29,39 @@ function(bpm_parse_version_string INPUT out_version)
     string(REGEX MATCH "^v?([0-9]+)\\.([0-9]+)\\.([0-9]+)$" _ "${VALUE}")
 
     if(CMAKE_MATCH_0)
+        set(major_lower "${CMAKE_MATCH_1}")
+        set(minor_lower "${CMAKE_MATCH_2}")
+        set(patch_lower "${CMAKE_MATCH_3}")
+
+        if(VERSION_QUALIFIER STREQUAL ">=")
+            set(major_upper "inf")
+            set(minor_upper "inf")
+            set(patch_upper "inf")
+        elseif(VERSION_QUALIFIER STREQUAL "^")
+            if(major_lower EQUAL 0)
+                set(major_upper "0")
+                math(EXPR minor_upper "${minor_lower} + 1")
+                set(patch_upper "0")
+            else()
+                math(EXPR major_upper "${major_lower} + 1")
+                set(minor_upper "0")
+                set(patch_upper "0")
+            endif()
+        elseif(VERSION_QUALIFIER STREQUAL "~")
+            set(major_upper "0")
+            math(EXPR minor_upper "${minor_lower} + 1")
+            set(patch_upper "0")
+        else()
+            set(major_upper ${major_lower})
+            set(minor_upper ${minor_lower})
+            math(EXPR patch_upper "${patch_lower} + 1") # upper bound is non inclusive
+        endif()
+
         # Valid semver
-        set(${out_version} "${VERSION_QUALIFIER}" "${CMAKE_MATCH_1}" "${CMAKE_MATCH_2}" "${CMAKE_MATCH_3}" PARENT_SCOPE)
+        set(${out_version_range} 
+            "${major_lower}.${minor_lower}.${patch_lower}" 
+            "${major_upper}.${minor_upper}.${patch_upper}"
+            PARENT_SCOPE)
     else()
         # ----------------------------------------------------
         # Not semver → treat as tag or commit hash
@@ -166,13 +197,13 @@ function(bpm_parse_arguments INPUT out_name out_repo out_tag out_build_type out_
     endif()
 
     if(NOT PKG_BUILD_TYPE)
-        set(BPM_BUILD_TYPE Release)
+        set(PKG_BUILD_TYPE Release)
     endif()
 
-    if(BPM_QUIET)
-        set(out_quiet ON)
+    if(PKG_QUIET)
+        set(${out_quiet} ON PARENT_SCOPE)
     else()
-        set(out_quiet OFF)
+        set(${out_quiet} OFF PARENT_SCOPE)
     endif()
       
     set(${out_name} ${PKG_NAME} PARENT_SCOPE)
@@ -186,159 +217,38 @@ function(bpm_parse_arguments INPUT out_name out_repo out_tag out_build_type out_
 
 endfunction()
 
-# @brief sets `out_upgradeable` to `TRUE` if the version A, with its qualifier can be upgraded to version B
-function(bpm_is_version_upgradeable QUALIFIER_A MAJOR_A MINOR_A PATCH_A MAJOR_B MINOR_B PATCH_B out_upgradeable)
-    if(QUALIFIER_A STREQUAL ">=")
-        # check if every part of B is larger or equal than A
-        if(MAJOR_A LESS MAJOR_B)
-            set(${out_upgradeable} TRUE PARENT_SCOPE)
-        elseif(MAJOR_A EQUAL MAJOR_B AND MINOR_A LESS MINOR_B)
-            set(${out_upgradeable} TRUE PARENT_SCOPE)
-        elseif(MAJOR_A EQUAL MAJOR_B AND MINOR_A EQUAL MINOR_B AND PATCH_A LESS_EQUAL PATCH_B)
-            set(${out_upgradeable} TRUE PARENT_SCOPE)
-        else()
-            set(${out_upgradeable} FALSE PARENT_SCOPE)
-        endif()
-    elseif(QUALIFIER_A STREQUAL "^")
-        # check if major is equal and others are larger or equal
-        if(MAJOR_A EQUAL MAJOR_B AND MINOR_A LESS MINOR_B)
-            set(${out_upgradeable} TRUE PARENT_SCOPE)
-        elseif(MAJOR_A EQUAL MAJOR_B AND MINOR_A EQUAL MINOR_B AND PATCH_A LESS_EQUAL PATCH_B)
-            set(${out_upgradeable} TRUE PARENT_SCOPE)
-        else()
-            set(${out_upgradeable} FALSE PARENT_SCOPE)
-        endif()
-    elseif(QUALIFIER_A STREQUAL "~")
-        # check if major and minor are equal and others are larger or equal
-        if(MAJOR_A EQUAL MAJOR_B AND MINOR_A EQUAL MINOR_B AND PATCH_A LESS_EQUAL PATCH_B)
-            set(${out_upgradeable} TRUE PARENT_SCOPE)
-        else()
-            set(${out_upgradeable} FALSE PARENT_SCOPE)
-        endif()
-    else()# if(INPUT STREQUAL "=")
-        # check if all are equal
-        if(MAJOR_A EQUAL MAJOR_B AND MINOR_A EQUAL MINOR_B AND PATCH_A EQUAL PATCH_B)
-            set(${out_upgradeable} TRUE PARENT_SCOPE)
-        else()
-            set(${out_upgradeable} FALSE PARENT_SCOPE)
-        endif()
-    endif()
-endfunction()
+function(bpm_version_range_intersection in_version_range_a in_version_range_b out_version_range)
+    list(GET in_version_range_a 0 a_lower)
+    list(GET in_version_range_a 1 a_upper)
 
-# @brief sets out to true if A < B
-function(bpm_version_less MAJOR_A MINOR_A PATCH_A MAJOR_B MINOR_B PATCH_B out)
-    if(MAJOR_A LESS MAJOR_B)
-        set(${out} TRUE PARENT_SCOPE)
-    elseif(MAJOR_A EQUAL MAJOR_B AND MINOR_A LESS MINOR_B)
-        set(${out} TRUE PARENT_SCOPE)
-    elseif(MAJOR_A EQUAL MAJOR_B AND MINOR_A EQUAL MINOR_B AND PATCH_A LESS PATCH_B)
-        set(${out} TRUE PARENT_SCOPE)
-    else() 
-        set(${out} FALSE PARENT_SCOPE)
-    endif()
-endfunction()
+    list(GET in_version_range_b 0 b_lower)
+    list(GET in_version_range_b 1 b_upper)
 
-# @brief sets out to true if a has A stricter qualifier than B
-function(bpm_is_stricter_qualifier QUALIFIER_A QUALIFIER_B OUT)
-    if(QUALIFIER_A STREQUAL ">=")
-        set(${OUT} FALSE PARENT_SCOPE)
-    elseif(QUALIFIER_A STREQUAL "^")
-        if(QUALIFIER_B STREQUAL ">=")
-            set(${OUT} TRUE PARENT_SCOPE)
-        else()
-            set(${OUT} FALSE PARENT_SCOPE)
-        endif()
-    elseif(QUALIFIER_A STREQUAL "~")
-        if(QUALIFIER_B STREQUAL ">=" OR QUALIFIER_B STREQUAL "^")
-            set(${OUT} TRUE PARENT_SCOPE)
-        else()
-            set(${OUT} FALSE PARENT_SCOPE)
-        endif()
-    elseif(QUALIFIER_A STREQUAL "=")
-        if(QUALIFIER_B STREQUAL "=")
-            set(${OUT} FALSE PARENT_SCOPE)
-        else()
-            set(${OUT} TRUE PARENT_SCOPE)
-        endif()
+
+    if(a_lower VERSION_LESS b_lower)
+        set(lower_bound ${b_lower})
     else()
-        message(FATAL_ERROR "BPM: Unsupported qualifier '${QUALIFIER_A}'")
-    endif()
-endfunction()
-
-# TODO: This funtion
-# write a function that selects the lowest version with the strongest qualifier that is within both versions
-# @brief outputs the intersection of both versions and qualifiers
-# @param QUALIFIER_A the version qualifier: '>=', '^',  '~' or '='
-# @param QUALIFIER_A_SETTER the project name that has set that qualifier
-# @param MAJOR_A The major version number
-# @param MINOR_A The minor version number
-# @param PATCH_A The patch version number
-# @param VERSION_A_SETTER The project name that has set the version numbers
-function(bpm_upgrade_version VERSION_A QUALIFIER_A_SETTER VERSION_A_SETTER VERSION_B QUALIFIER_B_SETTER VERSION_B_SETTER out_version out_qualifier_setter out_version_setter)
-    list(LENGTH VERSION_A len)
-    if(NOT len EQUAL 4)
-        message(FATAL_ERROR "BPM: In function: bpm_upgrade_version only semver version are supported. Git tags or hashes are not supported yet. len: ${len}")
+        set(lower_bound ${a_lower})
     endif()
 
-    list(LENGTH VERSION_B len)
-    if(NOT len EQUAL 4)
-        message(FATAL_ERROR "BPM: In function: bpm_upgrade_version only semver version are supported. Git tags or hashes are not supported yet. len: ${len}")
-    endif()
-    
-    list(GET VERSION_A 0 QUALIFIER_A)
-    list(GET VERSION_A 1 MAJOR_A)
-    list(GET VERSION_A 2 MINOR_A)
-    list(GET VERSION_A 3 PATCH_A)
-
-    list(GET VERSION_B 0 QUALIFIER_B)
-    list(GET VERSION_B 1 MAJOR_B)
-    list(GET VERSION_B 2 MINOR_B)
-    list(GET VERSION_B 3 PATCH_B)
-
-    bpm_version_less(${MAJOR_A} ${MINOR_A} ${PATCH_A} ${MAJOR_B} ${MINOR_B} ${PATCH_B} va_less_vb)
-    set(is_upgradeable FALSE)
-    if(va_less_vb)
-        bpm_is_version_upgradeable(${QUALIFIER_A} ${MAJOR_A} ${MINOR_A} ${PATCH_A} ${MAJOR_B} ${MINOR_B} ${PATCH_B} is_upgradeable)
-        if(is_upgradeable)
-            set(out_major ${MAJOR_B})
-            set(out_minor ${MINOR_B})
-            set(out_patch ${PATCH_B}) 
-            set(out_version_setter ${VERSION_B_SETTER})
-        endif()
+    if((a_upper STREQUAL "inf.inf.inf") AND (b_upper STREQUAL "inf.inf.inf"))
+        set(upper_bound "inf.inf.inf")
+    elseif((NOT a_upper STREQUAL "inf.inf.inf") AND (b_upper STREQUAL "inf.inf.inf"))
+        set(upper_bound "${a_upper}")
+    elseif((a_upper STREQUAL "inf.inf.inf") AND (NOT b_upper  STREQUAL "inf.inf.inf"))
+        set(upper_bound "${b_upper}")
+    elseif(a_upper VERSION_LESS b_upper)
+        set(upper_bound "${a_upper}")
     else()
-        bpm_is_version_upgradeable(${QUALIFIER_B} ${MAJOR_B} ${MINOR_B} ${PATCH_B} ${MAJOR_A} ${MINOR_A} ${PATCH_A} is_upgradeable)
-        if(is_upgradeable)
-            set(out_major ${MAJOR_A})
-            set(out_minor ${MINOR_A})
-            set(out_patch ${PATCH_A}) 
-            set(out_version_setter ${VERSION_A_SETTER})
-        endif()
+        set(upper_bound "${b_upper}")
     endif()
 
-    if(NOT is_upgradeable)
-        if(VERSION_A_SETTER STREQUAL QUALIFIER_A_SETTER)
-            set(ERR_MSG_A "${QUALIFIER_A}${MAJOR_A}.${MINOR_A}.${PATCH_A} set by ${VERSION_A_SETTER}")
-        else()
-            set(ERR_MSG_A "${QUALIFIER_A}${MAJOR_A}.${MINOR_A}.${PATCH_A} set by ${QUALIFIER_A_SETTER} and ${VERSION_A_SETTER}")
-        endif()
-        if(VERSION_B_SETTER STREQUAL QUALIFIER_B_SETTER)
-            set(ERR_MSG_B "${QUALIFIER_B}${MAJOR_B}.${MINOR_B}.${PATCH_B} set by ${VERSION_B_SETTER}")
-        else()
-            set(ERR_MSG_B "${QUALIFIER_B}${MAJOR_B}.${MINOR_B}.${PATCH_B} set by ${QUALIFIER_B_SETTER} and ${VERSION_B_SETTER}")
-        endif()
-        message(FATAL_ERROR "BPM [${PKG_NAME}]: Version conflict: ${ERR_MSG_A} <-- vs -->  ${ERR_MSG_B}")
-    endif()
-    
-    bpm_is_stricter_qualifier(${QUALIFIER_A} ${QUALIFIER_B} qa_stricter_than_qb)
-    if(qa_stricter_than_qb)
-        set(out_qualifier ${QUALIFIER_A})
-        set(${out_qualifier_setter} ${QUALIFIER_A_SETTER} PARENT_SCOPE)
-    else()
-        set(out_qualifier ${QUALIFIER_B})
-        set(${out_qualifier_setter} ${QUALIFIER_B_SETTER} PARENT_SCOPE)
+    if((NOT upper_bound STREQUAL "inf.inf.inf") AND (upper_bound VERSION_LESS lower_bound))
+        # version conflict: return without result
+        return()
     endif()
 
-    set(${out_version} ${out_qualifier} ${out_major} ${out_minor} ${out_patch} PARENT_SCOPE)
+    set(${out_version_range} "${lower_bound}" "${upper_bound}" PARENT_SCOPE)
 endfunction()
 
 # @brief Creates a package registry and resolves versions
@@ -359,16 +269,18 @@ endfunction()
 # ```
 
 function(BPMAddInstallPackage)
-    bpm_parse_arguments("${ARGN}" PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG_BUILD_TYPE PKG_OPTIONS PKG_PACKAGES PKG_QUIET PKG_VERSION)
 
-    
+    bpm_parse_arguments("${ARGN}"
+        PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG_BUILD_TYPE 
+        PKG_OPTIONS PKG_PACKAGES PKG_QUIET PKG_VERSION_RANGE)
+
 
     # Create the Registry and delete the old one
     # --------------------------------------------------------------------------------
     get_property(BPM_REGISTRY_ GLOBAL PROPERTY BPM_REGISTRY)
     if(BPM_REGISTRY_)
         # uniquely add the package name to the list
-        get_property(BPM_${PKG_NAME}_ADDED_ GLOBAL PROPERTY BPM_${PKG_NAME}_ADDED)
+        get_property("BPM_${PKG_NAME}_ADDED_" GLOBAL PROPERTY "BPM_${PKG_NAME}_ADDED")
         if(NOT BPM_${PKG_NAME}_ADDED_)
             list(APPEND BPM_REGISTRY_ "${PKG_NAME}")
             set_property(GLOBAL PROPERTY BPM_REGISTRY "${BPM_REGISTRY_}")
@@ -379,64 +291,45 @@ function(BPMAddInstallPackage)
 
         # also delete the old registry file when creating a new one
         if(PROJECT_IS_TOP_LEVEL)
-            if(EXISTS "${CMAKE_BINARY_DIR}/BPM/BPM_REGISTRY")
-                file(REMOVE "${CMAKE_BINARY_DIR}/BPM/BPM_REGISTRY")
+            if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.bpm-registry")
+                file(REMOVE "${CMAKE_CURRENT_SOURCE_DIR}/.bpm-registry")
             endif()
         endif()
     endif()
 
-    # Build the local registry based on its provided version
-    # --------------------------------------------------------------------------------
     get_property(BPM_${PKG_NAME}_ADDED_ GLOBAL PROPERTY BPM_${PKG_NAME}_ADDED)
     if(NOT BPM_${PKG_NAME}_ADDED_)
-        set_property(GLOBAL PROPERTY BPM_REGISTRY_${PKG_NAME}_VERSION ${PKG_VERSION})
-        set_property(GLOBAL PROPERTY BPM_REGISTRY_${PKG_NAME}_REQUIRED_FROM "") # empty equals root
-        set_property(GLOBAL PROPERTY BPM_REGISTRY_${PKG_NAME}_VERSION_LAST_SET_BY ${PROJECT_NAME})
-        set_property(GLOBAL PROPERTY BPM_REGISTRY_${PKG_NAME}_VERSION_QUALIFIER_LAST_SET_BY ${PROJECT_NAME})
+        set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_REQUIRED_FROM" "/") # from root
+        set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_VERSION_RANGE" "${PKG_VERSION_RANGE}")
+        set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_TAG" "${PKG_GIT_TAG}")
+        set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_REPOSITORY" "${PKG_GIT_REPOSITORY}")
     else()
-        # check if the version number can be updated 
-        get_property(VERSION_A GLOBAL PROPERTY BPM_REGISTRY_${PKG_NAME}_VERSION)
-        get_property(QUALIFIER_A_SETTER GLOBAL PROPERTY BPM_REGISTRY_${PKG_NAME}_VERSION_QUALIFIER_LAST_SET_BY)
-        get_property(VERSION_A_SETTER GLOBAL PROPERTY BPM_REGISTRY_${PKG_NAME}_VERSION_LAST_SET_BY)
+        get_property(REGISTERED_GIT_REPOSITORY GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_REPOSITORY")
+        if(NOT "${REGISTERED_GIT_REPOSITORY}" STREQUAL "${PKG_GIT_REPOSITORY}")
+            message(FATAL_ERROR 
+                "BPM: Repository Conflict\n"
+                "  Package: ${PKG_NAME}\n"
+                "  Required from: /\n"
+                "  New repo: ${PKG_GIT_REPOSITORY}\n"
+                "  In registry: ${REGISTERED_GIT_REPOSITORY}")
+        endif()
 
-        bpm_upgrade_version("${VERSION_A}" "${QUALIFIER_A_SETTER}" "${VERSION_A_SETTER}"
-            "${PKG_VERSION}" "${PROJECT_NAME}" "${PROJECT_NAME}"
-            out_version out_qualifier_setter out_version_setter)
+        get_property(REGISTERED_VERSION_RANGE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_VERSION_RANGE")
 
-        set_property(GLOBAL PROPERTY BPM_REGISTRY_${PKG_NAME}_VERSION ${out_version})
-        set_property(GLOBAL PROPERTY BPM_REGISTRY_${PKG_NAME}_VERSION_QUALIFIER_LAST_SET_BY ${out_qualifier_setter})
-        set_property(GLOBAL PROPERTY BPM_REGISTRY_${PKG_NAME}_VERSION_LAST_SET_BY ${out_version_setter})
+        bpm_version_range_intersection("${REGISTERED_VERSION_RANGE}" "${PKG_VERSION_RANGE}" intersec_version_range)
+        if(NOT intersec_version_range)
+            message(FATAL_ERROR 
+                "BPM: Version Conflict\n" 
+                "  Package: ${PKG_NAME}\n"
+                "  Required from: /\n"
+                "  New repo: ${PKG_VERSION_RANGE}\n"
+                "  In registry: ${REGISTERED_VERSION_RANGE}")
+        endif()
+
+        set_property(GLOBAL PROPERTY BPM_REGISTRY_${PKG_NAME}_VERSION_RANGE "${intersec_version_range}")
     endif()
 
-    set_property(GLOBAL PROPERTY BPM_REGISTRY_${PKG_NAME}_INSTALL TRUE)
-    set_property(GLOBAL PROPERTY BPM_${PKG_NAME}_ADDED ON)
-
-    # Get the BPM Cache location from `-DBPM_CACHE=` or environment variable or set it do default
-    set(bpm_cache_dir "")
-
-    get_property(BPM_CHACHE_LOCATION_RESOLVED_ GLOBAL PROPERTY BPM_CHACHE_LOCATION_RESOLVED)
-    if(NOT BPM_CHACHE_LOCATION_RESOLVED_)
-        set_property(GLOBAL PROPERTY BPM_CHACHE_LOCATION_RESOLVED ON)
-    endif()
-
-    if(DEFINED BPM_CACHE AND NOT "${BPM_CACHE}" STREQUAL "")
-        if(NOT BPM_CHACHE_LOCATION_RESOLVED_) # only print it the first time
-            message(STATUS "BPM: resolve BPM_CACHE - from CMAKE_ARG: ${BPM_CACHE}")
-        endif()
-        set(bpm_cache_dir ${BPM_CACHE})
-    elseif(DEFINED ENV{BPM_CACHE} AND NOT "$ENV{BPM_CACHE}" STREQUAL "")
-        set(bpm_cache_dir "$ENV{BPM_CACHE}")
-        if(NOT BPM_CHACHE_LOCATION_RESOLVED_) # only print it the first time
-            message(STATUS "BPM: resolve BPM_CACHE - from environment variable: ${bpm_cache_dir}")
-        endif()
-    else()
-        file(RELATIVE_PATH rel_build_dir "${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}")
-        if(NOT BPM_CHACHE_LOCATION_RESOLVED_) # only print it the first time
-            message(STATUS "BPM: resolve ${RESULT_VAR} - no cache provided: use local: ./${rel_build_dir}/_deps")
-        endif()
-        set(bpm_cache_dir "./${rel_build_dir}/_deps")
-    endif()
-
+    set_property(GLOBAL PROPERTY "BPM_${PKG_NAME}_ADDED" TRUE)
 
 endfunction()
 
@@ -448,36 +341,234 @@ function(BPMAddSourcePackage)
 
 endfunction()
 
+function(bpm_get_cache_dir RESULT_VAR)
+    set(_value "")
 
-function(bpm_write_registry_file)
+    if(DEFINED BPM_CACHE AND NOT "${BPM_CACHE}" STREQUAL "")
+        message(STATUS "BPM: resolve BPM_CACHE - from CMAKE_ARG: ${BPM_CACHE}")
+        return()
+    endif()
 
-    get_property(BPM_REGISTRY_ GLOBAL PROPERTY BPM_REGISTRY)
-    foreach(pkg_name IN LISTS BPM_REGISTRY_)
-        get_property(pkg_v_qualifier GLOBAL PROPERTY BPM_REGISTRY_${pkg_name}_VERSION_QUALIFIER)
-        get_property(pkg_v_qualifier_setter GLOBAL PROPERTY BPM_REGISTRY_${pkg_name}_VERSION_QUALIFIER_LAST_SET_BY)
+    if(DEFINED ENV{BPM_CACHE} AND NOT "$ENV{BPM_CACHE}" STREQUAL "")
+        set(_value "$ENV{BPM_CACHE}")
+        message(STATUS "BPM: resolve BPM_CACHE - from environment variable: ${_value}")
+    else()
+        set(_value "${CMAKE_SOURCE_DIR}/_deps")
+        file(RELATIVE_PATH rel_build_dir "${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}")
+        message(STATUS "BPM: resolve BPM_CACHE - no cache provided: use local: ./${rel_build_dir}/_deps")
+    endif()
+
+    set(${RESULT_VAR} "${_value}" PARENT_SCOPE)
+endfunction()
+
+function(bpm_clone_repository_if_needed lib_name git_repo mirror_dir)
+    if(NOT EXISTS "${mirror_dir}/HEAD")
+        message(STATUS "BPM [${lib_name}]: Cloning git repository: ${git_repo} into: ${mirror_dir}")
         
-        get_property(pkg_major GLOBAL PROPERTY BPM_REGISTRY_${pkg_name}_VERSION_MAJOR)
-        get_property(pkg_minor GLOBAL PROPERTY BPM_REGISTRY_${pkg_name}_VERSION_MINOR)
-        get_property(pkg_patch GLOBAL PROPERTY BPM_REGISTRY_${pkg_name}_VERSION_PATCH)
-        get_property(pkg_version_setter GLOBAL PROPERTY BPM_REGISTRY_${pkg_name}_VERSION_LAST_SET_BY)
+        execute_process(
+            COMMAND git clone --mirror "${git_repo}" "${mirror_dir}" --recursive -c advice.detachedHead=false
+            RESULT_VARIABLE res
+        )
+    
+        if(res EQUAL 0)
+            message(STATUS "BPM [${lib_name}]: Cloning git repository - success")
+        else() 
+            message(FATAL_ERROR "BPM [${lib_name}]: Cloning git repository - failed")
+        endif()
+    endif()
+endfunction()
 
-        get_property(pkg_install GLOBAL PROPERTY BPM_REGISTRY_${pkg_name}_INSTALL)
+function(bpm_mirror_fetch_newest lib_name mirror_dir)
+    message(STATUS "BPM [${lib_name}]: Fetching newest version")
+    execute_process(
+        COMMAND git "--git-dir=${mirror_dir}" fetch --all --tags --prune
+        RESULT_VARIABLE res
+    )
+    if(res EQUAL 0)
+        message(STATUS "BPM [${lib_name}]: Fetching newest version - success")
+    else() 
+        message(WARNING "BPM [${lib_name}]: Fetching newest version - failed")
+    endif()
+endfunction()
 
-        get_property(pkg_from GLOBAL PROPERTY BPM_REGISTRY_${pkg_name}_REQUIRED_FROM)
-        get_property(pkg_from_major GLOBAL PROPERTY BPM_REGISTRY_${pkg_name}_REQUIRED_FROM_MAJOR)
-        get_property(pkg_from_minor GLOBAL PROPERTY BPM_REGISTRY_${pkg_name}_REQUIRED_FROM_MINOR)
-        get_property(pkg_from_patch GLOBAL PROPERTY BPM_REGISTRY_${pkg_name}_REQUIRED_FROM_PATCH)
+function(bpm_fully_contains_tag_range IN_VERSIONS RANGE OUT)
+    if("${version_upper}" STREQUAL "inf.inf.inf")
+        set(${OUT} FALSE PARENT_SCOPE)
+        return()
+    endif()
 
-        set(write_string "FROM ${pkg_from} FROM_VERSION ${pkg_from_version} NAME ${pkg_name} QUALIFIER ${pkg_v_qualifier} QUALIFIER_SETTER ${pkg_v_qualifier_setter} VERSION_MAJOR ${pkg_major} VERSION_MINOR ${pkg_minor} VERSION_PATCH ${pkg_patch} VERSION_SETTER ${pkg_version_setter} INSTALL ${pkg_install}")
-        file(APPEND "${CMAKE_CURRENT_SOURCE_DIR}/.bpm-registry" "${write_string}\n")
+    list(GET RANGE 0 version_lower)
+    list(GET RANGE 1 version_upper)
 
+    # check if we are searching for an exact match
+    set(exact_match FALSE)
+    string(REGEX MATCH "([0-9]+)\\.([0-9]+)\\.([0-9]+)$" _ "${version_lower}")
+    if(CMAKE_MATCH_0)
+        set(major_lower ${CMAKE_MATCH_1})
+        set(minor_lower ${CMAKE_MATCH_2})
+        set(patch_lower ${CMAKE_MATCH_3})
+    else()
+        message(FATAL_ERROR "BPM: Internal error: version string is not correct: ${version_lower}")
+    endif()
+
+    math(EXPR patch_lower_plus_one "${patch_lower} + 1")
+    set(version_lower_plus_one "${major_lower}.${minor_lower}.${patch_lower_plus_one}")
+
+    if(version_lower_plus_one VERSION_EQUAL version_upper)
+        # find exact match
+        set(find_exact_match TRUE)
+        foreach(tag IN LISTS IN_VERSIONS)
+            if("${version_lower}" VERSION_LESS_EQUAL "${tag}")
+                set(${OUT} TRUE PARENT_SCOPE)
+                return()
+            endif()
+        endforeach()
+    else()
+        message(STATUS "find range")
+        # find range
+        set(has_larger FALSE)
+        set(contains_at_least_one FALSE)
+        if("${version_upper}" STREQUAL "inf.inf.inf")
+            set(has_larger FALSE)
+        else()
+            foreach(tag IN LISTS IN_VERSIONS)
+                if(("${version_lower}" VERSION_LESS_EQUAL "${tag}") AND "${tag}" VERSION_LESS "${version_upper}")
+                    set(contains_at_least_one TRUE)
+                elseif("${version_upper}" VERSION_LESS_EQUAL "${tag}")
+                    # found a version that is larger than the range
+                    set(${OUT} ${contains_at_least_one} PARENT_SCOPE)
+                    return()
+                endif()
+            endforeach()
+        endif()
+        
+        set(${OUT} FALSE PARENT_SCOPE)
+    endif()
+endfunction()
+
+function(bpm_filter_version_tags IN_TAGS IN_RANGE OUT_FILTERED_TAGS)
+
+    list(GET IN_RANGE 0 version_lower)
+    list(GET IN_RANGE 1 version_upper)
+
+    # filter tags that match the version range
+    foreach(tag IN LISTS IN_TAGS)
+        if("${version_lower}" VERSION_LESS_EQUAL "${tag}")
+            if("${version_upper}" STREQUAL "inf.inf.inf")
+                LIST(APPEND filtered_version_tags "${tag}")
+            elseif("${tag}" VERSION_LESS "${version_upper}")
+                LIST(APPEND filtered_version_tags "${tag}")
+            endif()
+        endif()
     endforeach()
+
+    set(${OUT_FILTERED_TAGS} "${filtered_version_tags}" PARENT_SCOPE)
+endfunction()
+
+function(bpm_highest_version versions out_var)
+
+    set(max_version "")
+
+    foreach(v IN LISTS versions)
+        if(max_version STREQUAL "")
+            set(max_version "${v}")
+        elseif("${v}" VERSION_GREATER "${max_version}")
+            set(max_version "${v}")
+        endif()
+    endforeach()
+
+    set(${out_var} "${max_version}" PARENT_SCOPE)
 
 endfunction()
 
 function(BPMMakeAvailable)
 
-    bpm_write_registry_file()
+    bpm_get_cache_dir(cache_dir)
+    
+    # write the local registry
+    get_property(BPM_REGISTRY_ GLOBAL PROPERTY BPM_REGISTRY)
+    foreach(PKG_NAME IN LISTS BPM_REGISTRY_)
+        # write local registry
+        get_property(REQUIRED_FROM GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_REQUIRED_FROM")
+        get_property(VERSION_RANGE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_VERSION_RANGE")
+        get_property(GIT_TAG GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_TAG")
+        get_property(GIT_REPOSITORY GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_REPOSITORY")
+
+        string(APPEND registry_content
+            "REQUIRED_FROM ${REQUIRED_FROM} NAME ${PKG_NAME} VERSION_RANGE ${VERSION_RANGE} "
+            "GIT_TAG ${GIT_TAG} GIT_REPOSITORY ${GIT_REPOSITORY} INSTALL ${pkg_install}\n"
+        )
+        
+    endforeach()
+    file(APPEND "${CMAKE_CURRENT_SOURCE_DIR}/.bpm-registry" "${registry_content}\n")
+
+    # get registries from all dependencies
+    get_property(BPM_REGISTRY_ GLOBAL PROPERTY BPM_REGISTRY)
+    foreach(PKG_NAME IN LISTS BPM_REGISTRY_)
+
+        get_property(REQUIRED_FROM GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_REQUIRED_FROM")
+        get_property(VERSION_RANGE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_VERSION_RANGE")
+        get_property(GIT_TAG GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_TAG")
+        get_property(GIT_REPOSITORY GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_REPOSITORY")
+
+        if(VERSION_RANGE)
+            list(GET VERSION_RANGE 0 version_lower)
+            list(GET VERSION_RANGE 1 version_upper)
+        else()
+            return()
+        endif()
+
+        # make sure that all mirrors are downloaded
+        set(mirror_dir ${cache_dir}/${PKG_NAME}/mirror)
+        bpm_clone_repository_if_needed(${PKG_NAME} ${GIT_REPOSITORY} ${mirror_dir})
+        
+        # find all tags that match the version range
+        execute_process(
+            COMMAND git "--git-dir=${mirror_dir}" tag
+            RESULT_VARIABLE res
+            OUTPUT_VARIABLE tags
+        )
+        if(NOT res EQUAL 0)
+            message(FATAL_ERROR "BPM: Failed to get tags from mirror: ${mirror_dir}. `git --git-dir=${mirror_dir} tag` returned: ${res}")
+        endif()
+
+        # turn the console command into a CMake list
+        string(REPLACE "\r\n" "\n" tags "${tags}")
+        string(REPLACE "\n" ";" tags "${tags}")
+
+        # convert tags to versions and ommit optional leading v
+        foreach(tag IN LISTS tags)
+            string(REGEX MATCH "^v?([0-9]+\\.[0-9]+\\.[0-9]+)$" _ "${tag}")
+            if(CMAKE_MATCH_0)
+                LIST(APPEND version_tags "${CMAKE_MATCH_1}")
+            endif()
+        endforeach()
+
+        # check if the version range is fully contained with the mirrors tags
+        bpm_fully_contains_tag_range("${version_tags}" "${VERSION_RANGE}" contains)
+
+        # fetch if upper version bound is inf
+        if(NOT contains)
+            bpm_mirror_fetch_newest(${PKG_NAME} ${mirror_dir})
+        endif()
+
+        bpm_filter_version_tags("${version_tags}" "${VERSION_RANGE}" filtered_version_tags)
+        if(NOT filtered_version_tags)
+            message(FATAL_ERROR 
+                "BPM: Error: no version tags match the version range\n"
+                "  Package: ${PKG_NAME}\n"
+                "  Required from: ${REQUIRED_FROM}\n"
+                "  Version range: ${version_lower} - ${version_upper}\n"
+                "  Version Tags: ${version_tags}")
+        endif()
+
+        bpm_highest_version("${filtered_version_tags}" highest_version)
+        message(STATUS "highest_version: ${highest_version}")
+
+        # TODO: continue building the external registry
+        # grab the .bpm-registry from library, if it exists and add its dependencies
+        
+    endforeach()
 
     set(PKG_CMAKE_ARGS "")
     if(PKG_OPTIONS)
