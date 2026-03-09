@@ -48,7 +48,7 @@ function(bpm_parse_version_string INPUT out_version_range)
                 set(patch_upper "0")
             endif()
         elseif(VERSION_QUALIFIER STREQUAL "~")
-            set(major_upper "0")
+            set(major_upper "${major_lower}")
             math(EXPR minor_upper "${minor_lower} + 1")
             set(patch_upper "0")
         else()
@@ -378,10 +378,10 @@ function(bpm_clone_repository_if_needed lib_name git_repo mirror_dir)
     endif()
 endfunction()
 
-function(bpm_mirror_fetch_newest lib_name mirror_dir)
+function(bpm_mirror_fetch_new_tags lib_name mirror_dir)
     message(STATUS "BPM [${lib_name}]: Fetching newest version")
     execute_process(
-        COMMAND git "--git-dir=${mirror_dir}" fetch --all --tags --prune
+        COMMAND git "--git-dir=${mirror_dir}" fetch --tags --prune
         RESULT_VARIABLE res
     )
     if(res EQUAL 0)
@@ -418,9 +418,13 @@ function(bpm_fully_contains_tag_range IN_VERSIONS RANGE OUT)
         # find exact match
         set(find_exact_match TRUE)
         foreach(tag IN LISTS IN_VERSIONS)
-            if("${version_lower}" VERSION_LESS_EQUAL "${tag}")
-                set(${OUT} TRUE PARENT_SCOPE)
-                return()
+            string(REGEX MATCH "([0-9]+\\.[0-9]+\\.[0-9]+)" _ "${tag}")
+            if(CMAKE_MATCH_1)
+                set(vtag ${CMAKE_MATCH_1})
+                if("${version_lower}" VERSION_LESS_EQUAL "${vtag}")
+                    set(${OUT} TRUE PARENT_SCOPE)
+                    return()
+                endif()
             endif()
         endforeach()
     else()
@@ -432,12 +436,16 @@ function(bpm_fully_contains_tag_range IN_VERSIONS RANGE OUT)
             set(has_larger FALSE)
         else()
             foreach(tag IN LISTS IN_VERSIONS)
-                if(("${version_lower}" VERSION_LESS_EQUAL "${tag}") AND "${tag}" VERSION_LESS "${version_upper}")
-                    set(contains_at_least_one TRUE)
-                elseif("${version_upper}" VERSION_LESS_EQUAL "${tag}")
-                    # found a version that is larger than the range
-                    set(${OUT} ${contains_at_least_one} PARENT_SCOPE)
-                    return()
+                string(REGEX MATCH "([0-9]+\\.[0-9]+\\.[0-9]+)" _ "${tag}")
+                if(CMAKE_MATCH_1)
+                    set(vtag ${CMAKE_MATCH_1})
+                    if(("${version_lower}" VERSION_LESS_EQUAL "${vtag}") AND "${vtag}" VERSION_LESS "${version_upper}")
+                        set(contains_at_least_one TRUE)
+                    elseif("${version_upper}" VERSION_LESS_EQUAL "${vtag}")
+                        # found a version that is larger than the range
+                        set(${OUT} ${contains_at_least_one} PARENT_SCOPE)
+                        return()
+                    endif()
                 endif()
             endforeach()
         endif()
@@ -452,12 +460,18 @@ function(bpm_filter_version_tags IN_TAGS IN_RANGE OUT_FILTERED_TAGS)
     list(GET IN_RANGE 1 version_upper)
 
     # filter tags that match the version range
+    set(filtered_version_tags "")
+
     foreach(tag IN LISTS IN_TAGS)
-        if("${version_lower}" VERSION_LESS_EQUAL "${tag}")
-            if("${version_upper}" STREQUAL "inf.inf.inf")
-                LIST(APPEND filtered_version_tags "${tag}")
-            elseif("${tag}" VERSION_LESS "${version_upper}")
-                LIST(APPEND filtered_version_tags "${tag}")
+        string(REGEX MATCH "([0-9]+\\.[0-9]+\\.[0-9]+)" _ "${tag}")
+        if(CMAKE_MATCH_1)
+            set(vtag ${CMAKE_MATCH_1})
+            if("${version_lower}" VERSION_LESS_EQUAL "${vtag}")
+                if("${version_upper}" STREQUAL "inf.inf.inf")
+                    LIST(APPEND filtered_version_tags "${tag}")
+                elseif("${vtag}" VERSION_LESS "${version_upper}")
+                    LIST(APPEND filtered_version_tags "${tag}")
+                endif()
             endif()
         endif()
     endforeach()
@@ -465,26 +479,83 @@ function(bpm_filter_version_tags IN_TAGS IN_RANGE OUT_FILTERED_TAGS)
     set(${OUT_FILTERED_TAGS} "${filtered_version_tags}" PARENT_SCOPE)
 endfunction()
 
-function(bpm_highest_version versions out_var)
+function(bpm_highest_version IN_TAGS out_var)
 
     set(max_version "")
+    set(max_tag "")
 
-    foreach(v IN LISTS versions)
-        if(max_version STREQUAL "")
-            set(max_version "${v}")
-        elseif("${v}" VERSION_GREATER "${max_version}")
-            set(max_version "${v}")
+    foreach(tag IN LISTS IN_TAGS)
+        string(REGEX MATCH "([0-9]+\\.[0-9]+\\.[0-9]+)" _ "${tag}")
+        if(CMAKE_MATCH_1)
+            set(vtag ${CMAKE_MATCH_1})
+            if(max_version STREQUAL "")
+                set(max_version "${vtag}")
+                set(max_tag "${tag}")
+            elseif("${vtag}" VERSION_GREATER "${max_version}")
+                set(max_version "${vtag}")
+                set(max_tag "${tag}")
+            endif()
         endif()
     endforeach()
 
-    set(${out_var} "${max_version}" PARENT_SCOPE)
+    set(${out_var} "${max_tag}" PARENT_SCOPE)
+
+endfunction()
+
+function(bpm_parse_registry_entry INPUT_LIST OUT_NAME OUT_VERSION_RANGE OUT_GIT_TAG OUT_GIT_REPOSITORY)
+    separate_arguments(tokens UNIX_COMMAND "${line}")
+
+    set(name "")
+    set(version_range "")
+    set(git_tag "")
+    set(git_repository "")
+
+    set(expect "")
+
+    foreach(arg IN LISTS tokens)
+
+        if(arg STREQUAL "NAME")
+            set(expect "NAME")
+            continue()
+        elseif(arg STREQUAL "VERSION_RANGE")
+            set(expect "VERSION_RANGE")
+            continue()
+        elseif(arg STREQUAL "GIT_TAG")
+            set(expect "GIT_TAG")
+            continue()
+        elseif(arg STREQUAL "GIT_REPOSITORY")
+            set(expect "GIT_REPOSITORY")
+            continue()
+        endif()
+
+        if(expect STREQUAL "NAME")
+            set(name "${arg}")
+            set(expect "")
+        elseif(expect STREQUAL "VERSION_RANGE")
+            set(version_range "${arg}")
+            string(REPLACE "-" ";" version_range ${version_range})
+            set(expect "")
+        elseif(expect STREQUAL "GIT_TAG")
+            set(git_tag "${arg}")
+            set(expect "")
+        elseif(expect STREQUAL "GIT_REPOSITORY")
+            set(git_repository "${arg}")
+            set(expect "")
+        endif()
+
+    endforeach()
+
+    set(${OUT_NAME} "${name}" PARENT_SCOPE)
+    set(${OUT_VERSION_RANGE} "${version_range}" PARENT_SCOPE)
+    set(${OUT_GIT_TAG} "${git_tag}" PARENT_SCOPE)
+    set(${OUT_GIT_REPOSITORY} "${git_repository}" PARENT_SCOPE)
 
 endfunction()
 
 function(BPMMakeAvailable)
 
     bpm_get_cache_dir(cache_dir)
-    
+
     # write the local registry
     get_property(BPM_REGISTRY_ GLOBAL PROPERTY BPM_REGISTRY)
     foreach(PKG_NAME IN LISTS BPM_REGISTRY_)
@@ -494,8 +565,10 @@ function(BPMMakeAvailable)
         get_property(GIT_TAG GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_TAG")
         get_property(GIT_REPOSITORY GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_REPOSITORY")
 
+        string(REPLACE ";" "-" SAFE_VERSION_RANGE "${VERSION_RANGE}")
+
         string(APPEND registry_content
-            "REQUIRED_FROM ${REQUIRED_FROM} NAME ${PKG_NAME} VERSION_RANGE ${VERSION_RANGE} "
+            "REQUIRED_FROM ${REQUIRED_FROM} NAME ${PKG_NAME} VERSION_RANGE ${SAFE_VERSION_RANGE} "
             "GIT_TAG ${GIT_TAG} GIT_REPOSITORY ${GIT_REPOSITORY} INSTALL ${pkg_install}\n"
         )
         
@@ -503,7 +576,7 @@ function(BPMMakeAvailable)
     file(APPEND "${CMAKE_CURRENT_SOURCE_DIR}/.bpm-registry" "${registry_content}\n")
 
     # get registries from all dependencies
-    get_property(BPM_REGISTRY_ GLOBAL PROPERTY BPM_REGISTRY)
+    set(BPM_EXTERNAL_REGISTRY "")
     foreach(PKG_NAME IN LISTS BPM_REGISTRY_)
 
         get_property(REQUIRED_FROM GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_REQUIRED_FROM")
@@ -515,12 +588,12 @@ function(BPMMakeAvailable)
             list(GET VERSION_RANGE 0 version_lower)
             list(GET VERSION_RANGE 1 version_upper)
         else()
-            return()
+            message(FATAL_ERROR "BPM: BPMMakeAvailable: Non-version tags are not supported yet.")
         endif()
 
         # make sure that all mirrors are downloaded
         set(mirror_dir ${cache_dir}/${PKG_NAME}/mirror)
-        bpm_clone_repository_if_needed(${PKG_NAME} ${GIT_REPOSITORY} ${mirror_dir})
+        bpm_clone_repository_if_needed("${PKG_NAME}" "${GIT_REPOSITORY}" ${mirror_dir})
         
         # find all tags that match the version range
         execute_process(
@@ -529,46 +602,108 @@ function(BPMMakeAvailable)
             OUTPUT_VARIABLE tags
         )
         if(NOT res EQUAL 0)
-            message(FATAL_ERROR "BPM: Failed to get tags from mirror: ${mirror_dir}. `git --git-dir=${mirror_dir} tag` returned: ${res}")
+            message(FATAL_ERROR "BPM [${PKG_NAME}]: Failed to get tags from mirror: ${mirror_dir}. `git --git-dir=${mirror_dir} tag` returned: ${res}")
         endif()
 
         # turn the console command into a CMake list
         string(REPLACE "\r\n" "\n" tags "${tags}")
         string(REPLACE "\n" ";" tags "${tags}")
 
-        # convert tags to versions and ommit optional leading v
-        foreach(tag IN LISTS tags)
-            string(REGEX MATCH "^v?([0-9]+\\.[0-9]+\\.[0-9]+)$" _ "${tag}")
-            if(CMAKE_MATCH_0)
-                LIST(APPEND version_tags "${CMAKE_MATCH_1}")
-            endif()
-        endforeach()
-
         # check if the version range is fully contained with the mirrors tags
-        bpm_fully_contains_tag_range("${version_tags}" "${VERSION_RANGE}" contains)
+        bpm_fully_contains_tag_range("${tags}" "${VERSION_RANGE}" contains)
 
         # fetch if upper version bound is inf
         if(NOT contains)
-            bpm_mirror_fetch_newest(${PKG_NAME} ${mirror_dir})
+            bpm_mirror_fetch_new_tags(${PKG_NAME} ${mirror_dir})
         endif()
 
-        bpm_filter_version_tags("${version_tags}" "${VERSION_RANGE}" filtered_version_tags)
+        bpm_filter_version_tags("${tags}" "${VERSION_RANGE}" filtered_version_tags)
         if(NOT filtered_version_tags)
             message(FATAL_ERROR 
                 "BPM: Error: no version tags match the version range\n"
                 "  Package: ${PKG_NAME}\n"
                 "  Required from: ${REQUIRED_FROM}\n"
                 "  Version range: ${version_lower} - ${version_upper}\n"
-                "  Version Tags: ${version_tags}")
+                "  Version Tags: ${tags}")
         endif()
 
         bpm_highest_version("${filtered_version_tags}" highest_version)
-        message(STATUS "highest_version: ${highest_version}")
+        message(STATUS "BPM [${PKG_NAME}]: highest_version: ${highest_version}")
+
+        # record the highest versions of all packages
+        list(APPEND "BPM_REGISTRY_PACKAGE_VERSIONS_${PKG_NAME}" "${highest_version}")
+        list(REMOVE_DUPLICATES "BPM_REGISTRY_PACKAGE_VERSIONS_${PKG_NAME}")
 
         # TODO: continue building the external registry
         # grab the .bpm-registry from library, if it exists and add its dependencies
+
+        execute_process(
+            COMMAND git "--git-dir=${mirror_dir}" show "${highest_version}:.bpm-registry"
+            RESULT_VARIABLE res
+            OUTPUT_VARIABLE metadata
+            ERROR_QUIET
+        )
+        if(res EQUAL 0)
+            # replace: root requirement with the actual package and version that requires it
+            string(REPLACE "REQUIRED_FROM /" "REQUIRED_FROM ${PKG_NAME}_${highest_version}" metadata "${metadata}")
+
+            if(NOT "${BPM_EXTERNAL_REGISTRY_${PKG_NAME}_${highest_version}_ADDED}")
+                list(APPEND BPM_EXTERNAL_REGISTRY "${PKG_NAME}_${highest_version}")
+                set("BPM_EXTERNAL_REGISTRY_${PKG_NAME}_${highest_version}_ADDED" TRUE)
+                
+                set("BPM_EXTERNAL_REGISTRY_${PKG_NAME}_${highest_version}_DEPS" "")
+
+                string(REPLACE "\r\n" "\n" metadata_list "${metadata}") # replace new lines windows to unix style
+                string(REPLACE "\n" ";" metadata_list "${metadata_list}") # replace new lines with ; for list seperators
+
+                message(STATUS "${metadata_list}")
+
+                
+                foreach(line IN LISTS metadata_list)
+                    bpm_parse_registry_entry("${line}" dep_name dep_version_range dep_git_tag dep_git_repository)
+                    if(dep_name)
+                        # assume an empty line otherwise
+                        list(APPEND "BPM_EXTERNAL_REGISTRY_${PKG_NAME}_${highest_version}_DEPS" "${dep_name}")
+                        list(APPEND "BPM_EXTERNAL_REGISTRY_${dep_name}_PARENTS" "${PKG_NAME}_${highest_version}")
+                        list(REMOVE_DUPLICATES "BPM_EXTERNAL_REGISTRY_${dep_name}_PARENTS")
+                        set("BPM_EXTERNAL_REGISTRY_${PKG_NAME}_${highest_version}_${dep_name}_VERSION_RANGE" "${dep_version_range}")
+                        set("BPM_EXTERNAL_REGISTRY_${PKG_NAME}_${highest_version}_${dep_name}_GIT_TAG" "${dep_git_tag}")
+                        set("BPM_EXTERNAL_REGISTRY_${PKG_NAME}_${highest_version}_${dep_name}_GIT_REPOSITORY" "${dep_git_repository}")
+                    endif()
+
+                endforeach()
+            else()
+                # TODO: Verify and double check the existing entry
+
+            endif()
+
+            message(STATUS "BPM [${PKG_NAME}]: ${metadata}")
+            file(APPEND "${CMAKE_CURRENT_SOURCE_DIR}/.bpm-registry" "${metadata}\n")
+            
+        else()
+            message(STATUS "BPM [${PKG_NAME}]: Does not contain a bpm registry file `.bpm-registry`")
+        endif()
         
     endforeach()
+
+    # print the registry:
+    message(STATUS "BPM_EXTERNAL_REGISTRY: ")
+    foreach(ext_reg IN LISTS BPM_EXTERNAL_REGISTRY)
+        message(STATUS "  ${ext_reg}")
+        foreach(dep IN LISTS BPM_EXTERNAL_REGISTRY_${ext_reg}_DEPS)
+            set(version_range "${BPM_EXTERNAL_REGISTRY_${ext_reg}_${dep}_VERSION_RANGE}")
+            set(git_tag "${BPM_EXTERNAL_REGISTRY_${ext_reg}_${dep}_GIT_TAG}")
+            set(git_repository "${BPM_EXTERNAL_REGISTRY_${ext_reg}_${dep}_GIT_REPOSITORY}")
+            set(parents "${BPM_EXTERNAL_REGISTRY_${dep}_PARENTS}")
+            set(highest_versions "${BPM_REGISTRY_PACKAGE_VERSIONS_${PKG_NAME}}")
+            message(STATUS "    ${dep}: version range: ${version_range}, tag: ${git_tag}, repo: ${git_repository}, parents: ${parents}, highest_versions: ${highest_versions}")
+            message(FATAL_ERROR "TODO: record the hightes version of all packages")
+        endforeach()
+        
+    endforeach()
+    
+
+    #message(FATAL_ERROR "TODO: Now to the real part, build the actual solver")
 
     set(PKG_CMAKE_ARGS "")
     if(PKG_OPTIONS)
