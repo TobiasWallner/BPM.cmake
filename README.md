@@ -1,11 +1,38 @@
 BPM - Binary Package Manager
 ============================
 
-BPM is a CMake-native package manager that allows you to fetch, build, cache, and reuse CMake-based dependencies directly from Git repositories.
+BPM is a CMake-native package and dependency manager.
+Intended for everyone who likes to program in C and C++ and cannot bother to learn more than just CMake to manage their projects.
+
+Cool features:
+--------------
+- Extremely small footprint in your `CMakeLists.txt`
+- Caches sources, builds and installs. 
+  - Either in the current build directory `./build/deps_` 
+  - or in a user defined cache `export BPM_CACHE=path/to/cache`.
+  - Seperates builds by hashes
+    - hash contains: compiler, compiler-version, toolchain-files, versions, git-commit-hash, library-flags, ... and many more
+- Infers versions from git tags: `v1.2.3` or `1.2.3` | `major.minor.patch`
+- Supports semver version constraints
+  - `>=`: Larger Versions - Selects this version or any newer version.
+  - `^`: Compatible Versions - Allows compatible upgrades that do not change the leading non-zero version number.
+  - `~`: Patched Versions - Allows patch updates within the same minor version.
+  - `=`: Exact Version - Selects only the exact version.
+- Resolves dependency version constraints 
+  - even diamond-dependencies
+- Cross compilation safe
+
+Programming in C++ I always wanted a package manager where i can just say:
+Here is a path to a library that i want to use. 
+And it knows how to correctly resolve version constraints, build/install and include it in my project, without me learning yet another language. 
 
 Dependencies:
 -------------
 - CMake: https://cmake.org/
+- Git: https://git-scm.com/
+
+That is it you literally need nothing more. 
+BPM is an almost zero-dependency package and dependency manager.
 
 Usage Examples:
 ---------------
@@ -201,5 +228,9 @@ BPMCreateInstallPackage(
   - Structure of header files to install
   - Default if omitted: `*.h`, `*.hh`, `*.hpp`, `*.hxx`
 
+Philosophy
+-----------
 
-TODO: add input argument that lets you specify the public header folder to something different than `include/` (also allow multiple)
+- Package managers should not force you to program 
+- Package managers should be teachable in 5min or less
+- Package managers should be as easy as saying: I want this library at that version.
