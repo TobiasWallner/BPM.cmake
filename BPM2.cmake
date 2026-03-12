@@ -365,25 +365,22 @@ function(bpm_clone_repository_if_needed lib_name git_repo mirror_dir)
     if(NOT EXISTS "${mirror_dir}/HEAD")
         message(STATUS "BPM [${lib_name}]: Cloning git repository: ${git_repo} into: ${mirror_dir}")
         
-        execute_process(
-            COMMAND git clone --mirror "${git_repo}" "${mirror_dir}" --recursive -c advice.detachedHead=false
-            RESULT_VARIABLE res
-        )
+        execute_process(COMMAND git clone --mirror "${git_repo}" "${mirror_dir}" --recursive -c advice.detachedHead=false RESULT_VARIABLE res)
     
         if(res EQUAL 0)
             message(STATUS "BPM [${lib_name}]: Cloning git repository - success")
         else() 
             message(FATAL_ERROR "BPM [${lib_name}]: Cloning git repository - failed")
         endif()
+    else()
+        message(STATUS "BPM [${lib_name}]: Mirror already exists: ${mirror_dir}")
     endif()
 endfunction()
 
 function(bpm_mirror_fetch_new_tags lib_name mirror_dir)
     message(STATUS "BPM [${lib_name}]: Fetching newest version")
-    execute_process(
-        COMMAND git "--git-dir=${mirror_dir}" fetch --tags --prune
-        RESULT_VARIABLE res
-    )
+    execute_process(COMMAND git "--git-dir=${mirror_dir}" fetch --tags --prune RESULT_VARIABLE res)
+
     if(res EQUAL 0)
         message(STATUS "BPM [${lib_name}]: Fetching newest version - success")
     else() 
@@ -454,6 +451,9 @@ function(bpm_fully_contains_tag_range IN_VERSIONS RANGE OUT)
     endif()
 endfunction()
 
+#
+# @param IN_TAGS a sorted list of tags (newest first)
+#
 function(bpm_filter_version_tags IN_TAGS IN_RANGE OUT_FILTERED_TAGS)
 
     list(GET IN_RANGE 0 version_lower)
@@ -472,6 +472,10 @@ function(bpm_filter_version_tags IN_TAGS IN_RANGE OUT_FILTERED_TAGS)
                 elseif("${vtag}" VERSION_LESS "${version_upper}")
                     LIST(APPEND filtered_version_tags "${tag}")
                 endif()
+            else()
+                # early return due to sorted list - skip rest
+                set(${OUT_FILTERED_TAGS} "${filtered_version_tags}" PARENT_SCOPE)
+                return()
             endif()
         endif()
     endforeach()
@@ -503,7 +507,7 @@ function(bpm_highest_version IN_TAGS out_var)
 endfunction()
 
 function(bpm_parse_registry_range_entry INPUT_LIST OUT_NAME OUT_VERSION_RANGE OUT_GIT_TAG OUT_GIT_REPOSITORY)
-    separate_arguments(tokens UNIX_COMMAND "${line}")
+    separate_arguments(tokens UNIX_COMMAND "${INPUT_LIST}")
 
     set(name "")
     set(version_range "")
@@ -513,7 +517,6 @@ function(bpm_parse_registry_range_entry INPUT_LIST OUT_NAME OUT_VERSION_RANGE OU
     set(expect "")
 
     foreach(arg IN LISTS tokens)
-
         if(arg STREQUAL "NAME")
             set(expect "NAME")
             continue()
@@ -553,7 +556,7 @@ function(bpm_parse_registry_range_entry INPUT_LIST OUT_NAME OUT_VERSION_RANGE OU
 endfunction()
 
 function(bpm_parse_registry_version_entry INPUT_LIST OUT_NAME OUT_VERSION OUT_GIT_TAG OUT_GIT_REPOSITORY)
-    separate_arguments(tokens UNIX_COMMAND "${line}")
+    separate_arguments(tokens UNIX_COMMAND "${INPUT_LIST}")
 
     set(name "")
     set(version "")
@@ -619,9 +622,53 @@ function(bpm_is_version_in_range in_version in_range out)
     
 endfunction()
 
+function(git_repo_normalize INPUT OUTPUT)
+    set(url "${INPUT}")
+
+    # remove trailing whitespace
+    string(STRIP "${url}" url)
+
+    # remove trailing .git
+    string(REGEX REPLACE "\\.git$" "" url "${url}")
+
+    # remove trailing slash
+    string(REGEX REPLACE "/$" "" url "${url}")
+
+    # ssh form: git@host:user/repo
+    if(url MATCHES "^[^@]+@([^:]+):(.+)$")
+        string(REGEX REPLACE "^[^@]+@([^:]+):(.+)$" "\\1/\\2" url "${url}")
+    endif()
+
+    # ssh://git@host/user/repo
+    if(url MATCHES "^ssh://")
+        string(REGEX REPLACE "^ssh://([^@]+@)?" "" url "${url}")
+    endif()
+
+    # http(s)://host/user/repo
+    if(url MATCHES "^https?://")
+        string(REGEX REPLACE "^https?://" "" url "${url}")
+    endif()
+
+    # normalize slashes in case of Windows paths
+    file(TO_CMAKE_PATH "${url}" url)
+
+    set(${OUTPUT} "${url}" PARENT_SCOPE)
+endfunction()
+
+function(git_repo_equal A B RESULT)
+    git_repo_normalize("${A}" A_NORM)
+    git_repo_normalize("${B}" B_NORM)
+
+    if(A_NORM STREQUAL B_NORM)
+        set(${RESULT} TRUE PARENT_SCOPE)
+    else()
+        set(${RESULT} FALSE PARENT_SCOPE)
+    endif()
+endfunction()
 
 function(bpm_solve_dependencies in_packages out_selected_list)
-    set(packages_to_do ${in_packages})
+
+    message(STATUS "in_packages: ${in_packages}")
 
     set(decision_counter "0")
     set("decision_${decision_counter}_todo_list" "${in_packages}")
@@ -633,17 +680,40 @@ function(bpm_solve_dependencies in_packages out_selected_list)
     set("decision_${decision_counter}_git_tag" "")
     set("decision_${decision_counter}_git_repo" "")
 
-    while("decision_${decision_counter}_todo_list")
-        set(todo_list "${decision_${decision_counter}_todo_list}")
-        list(POP_FRONT todo_list pkg)
-        if(decision_${decision_counter}_pkg_name) # if entry exists --> this is a retry --> go and select a lower version
-            if("decision_${decision_counter}_tag_wheel")
-                list(POP_FRONT "decision_${decision_counter}_tag_wheel" top_version)
+    # print current decision
+    set(short_to_do "")
+    foreach(todo IN LISTS decision_${decision_counter}_todo_list)
+        bpm_parse_registry_range_entry("${todo}" pkg_name pkg_version_range pkg_git_tag pkg_git_repo)
+        list(APPEND short_to_do "${pkg_name}")
+    endforeach()
+    message(STATUS "decision: ${decision_counter}, todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${decision_${decision_counter}_range}, wheel: ${decision_${decision_counter}_tag_wheel}")
 
+    message(STATUS "decision_${decision_counter}_todo_list: ${decision_${decision_counter}_todo_list}")
+
+    set(solved_one FALSE)
+    set(version_conflict FALSE)
+
+    while(decision_${decision_counter}_todo_list)
+        message(STATUS "while-loop decision-counter: ${decision_counter}")
+
+        set(todo_list ${decision_${decision_counter}_todo_list})
+        list(POP_FRONT todo_list pkg)
+        bpm_parse_registry_range_entry("${pkg}" pkg_name pkg_version_range pkg_git_tag pkg_git_repo)
+        
+        set(mirror_dir "${BPM_CACHE_DIR}/${pkg_name}/mirror")
+
+        if(version_conflict) # if there was a version conflict
+            message("Back at previous decision: ${decision_counter}")
+            if(decision_${decision_counter}_tag_wheel)
+                message(STATUS "BPM [${pkg_name}]: non empty tag wheel: ${decision_${decision_counter}_tag_wheel}")
+                list(POP_FRONT decision_${decision_counter}_tag_wheel top_version)
+                message(STATUS "BPM [${pkg_name}]: selected top: ${top_version}")
                 # retry logic with lower version
 
                 # TODO: consider caching the metadata registry files to safe on calls to git
-                execute_process(COMMAND "git --git-dir=${mirror_dir} show ${top_version}:.bpm-registry" RESULT_VARIABLE res OUTPUT_VARIABLE metadata ERROR_QUIET)
+                message(STATUS "BPM [${pkg_name}]: load registry from new version")
+                message(STATUS "execute: git \"--git-dir=${mirror_dir}\" cat-file blob \"${top_version}:.bpm-registry\"")
+                execute_process(COMMAND git "--git-dir=${mirror_dir}" cat-file blob "${top_version}:.bpm-registry" RESULT_VARIABLE res OUTPUT_VARIABLE metadata ERROR_QUIET)
         
                 string(REPLACE "\r\n" "\n" metadata_list "${metadata}") # replace new lines windows to unix style
                 string(REPLACE "\n" ";" metadata_list "${metadata_list}") # replace new lines with ; for list seperators
@@ -651,9 +721,9 @@ function(bpm_solve_dependencies in_packages out_selected_list)
                 message(STATUS "${metadata_list}")
 
                 if(res EQUAL 0)
-                    foreach(line IN LISTS "${metadata_list}")
+                    foreach(line IN LISTS metadata_list)
                         if(line)
-                            list(APPEND todo_list line)
+                            list(APPEND todo_list "${line}")
                         endif()
                     endforeach()
                 endif()
@@ -661,7 +731,7 @@ function(bpm_solve_dependencies in_packages out_selected_list)
                 # no registry found --> no more entries added to the todo list --> make decision and continue
                 math(EXPR next_decision_counter "${decision_counter} + 1")
                 
-                set(entry "NAME ${pkg_name} VERSION ${top_version} GIT_REPO ${git_repo}")
+                set(entry "NAME ${pkg_name} VERSION ${top_version} GIT_REPO ${pkg_git_repo}")
 
                 set("decision_${next_decision_counter}_todo_list" "${todo_list}")
                 set("decision_${next_decision_counter}_selected_list" "${decision_${decision_counter}_selected_list};${entry}")
@@ -674,10 +744,20 @@ function(bpm_solve_dependencies in_packages out_selected_list)
 
                 set(decision_counter "${next_decision_counter}")
                 
+                # print current decision
+                message(STATUS "new decision")
+                set(short_to_do "")
+                foreach(todo IN LISTS decision_${decision_counter}_todo_list)
+                    bpm_parse_registry_range_entry("${todo}" pkg_name pkg_version_range pkg_git_tag pkg_git_repo)
+                    list(APPEND short_to_do "${pkg_name}")
+                endforeach()
+                message(STATUS "decision: ${decision_counter}, todo: ${short_to_do}, pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${decision_${decision_counter}_range}, wheel: ${decision_${decision_counter}_tag_wheel}")
+
                 continue()
             else()
                 # no more versions to try
                 # delete this entry 
+                message(STATUS "empty tag wheel --> pop back further")
                 set("decision_${decision_counter}_todo_list" "")
                 set("decision_${decision_counter}_selected_list" "")
                 set("decision_${decision_counter}_pkg_name" "")
@@ -689,17 +769,26 @@ function(bpm_solve_dependencies in_packages out_selected_list)
 
                 # pop
                 math(EXPR decision_counter "${decision_counter} - 1")
+                if(decision_counter LESS 0)
+                    message(FATAL_ERROR "Dependency resolution failed - TODO: better error message")
+                endif()
                 continue()
             endif()
         endif()
 
         set(solved_one FALSE)
+        set(version_conflict FALSE)
         # check if the package is already in the selected list
-        foreach(selected IN LISTS "decision_${decision_counter}_selected_list")
+        message(STATUS "Go through previous decisions and check if that package has already been decided")
+        foreach(selected IN LISTS decision_${decision_counter}_selected_list)
             bpm_parse_registry_version_entry("${selected}" sel_name sel_version sel_git_tag sel_git_repo)
             if(("${sel_name}" STREQUAL "${pkg_name}") OR ("${pkg_git_repo}" STREQUAL "${sel_git_repo}"))
+                message(STATUS "Found package '${pkg_name}' that has already been decided")
                 # repo conflict?
-                if(NOT "${pkg_git_repo}" STREQUAL "${sel_git_repo}")
+
+                git_repo_equal("${pkg_git_repo}" "${sel_git_repo}" are_repos_equal)
+
+                if(NOT are_repos_equal)
                     message(FATAL_ERROR  "Repository conflict\n  Package: ${pkg_name}\n  Repository 1: ${pkg_git_repo}\n  Repository 2: ${sel_git_repo}")
                 endif()
 
@@ -709,8 +798,10 @@ function(bpm_solve_dependencies in_packages out_selected_list)
                 endif()
 
                 # check if the selected version is in the constraint
+                message(STATUS "Check if the package '${pkg_name}' with selected version ${sel_version} is in the range ${pkg_version_range} of the new constraint")
                 bpm_is_version_in_range("${sel_version}" "${pkg_version_range}" is_in_range)
                 if(is_in_range)
+                    message(STATUS "  package is in range")
                     # no version conflict - already part of the list
                     # record decision
                     math(EXPR next_decision_counter "${decision_counter} + 1")
@@ -725,10 +816,22 @@ function(bpm_solve_dependencies in_packages out_selected_list)
                     set("decision_${next_decision_counter}_git_repo" "${pkg_git_repo}")
 
                     set(decision_counter "${next_decision_counter}")
+
+                    # print current decision
+                    set(short_to_do "")
+                    foreach(todo IN LISTS decision_${decision_counter}_todo_list)
+                        bpm_parse_registry_range_entry("${todo}" pkg_name pkg_version_range pkg_git_tag pkg_git_repo)
+                        list(APPEND short_to_do "${pkg_name}")
+                    endforeach()
+                    message(STATUS "decision: ${decision_counter}, todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${decision_${decision_counter}_range}, wheel: ${decision_${decision_counter}_tag_wheel}")
+
+
                     set(solved_one TRUE)
                     break()
-                elseif()
-                    # found a version conflict 
+                else()
+                    message(STATUS "  package is not in range --> version conflict")
+                    # found a version conflict
+                    set(version_conflict TRUE)
                     break()
                 endif()
             endif()
@@ -737,24 +840,44 @@ function(bpm_solve_dependencies in_packages out_selected_list)
         # continue whith the next package if one decision got solved in the for loop
         if(solved_one)
             continue()
-        elseif()
+        endif()
 
         if(version_conflict)
             continue()
-        elseif()
+        endif()
 
         # package is not yet in the selected list
         # build the version wheel for this pakcage
-        set(mirror_dir "${BPM_CACHE_DIR}/${pkg_name}/mirror")
+
+        message(STATUS "found a new package that is not part of the selected list")
+
+        message(STATUS "clone if it does not exist yet")
+
+        if(NOT mirror_${pkg_name}_up_to_date)
+            if(NOT EXISTS "${mirror_dir}/HEAD")
+                message(STATUS "BPM [${pkg_name}]: Cloning git repository: ${pkg_git_repo} into: ${mirror_dir}")
+                
+                execute_process(COMMAND git clone --mirror "${pkg_git_repo}" "${mirror_dir}" --recursive -c advice.detachedHead=false RESULT_VARIABLE res)
+
+                if(res EQUAL 0)
+                    message(STATUS "BPM [${pkg_name}]: Cloning git repository - success")
+                    set(mirror_${pkg_name}_up_to_date TRUE)
+                else() 
+                    message(FATAL_ERROR "BPM [${pkg_name}]: Cloning git repository - failed")
+                endif()
+            endif()
+        endif()
+
 
         # see if tags have already been acquired
-        get_property("BPM_REGISTRY_${pkg_name}_GIT_TAGS_" GLOBAL PROPERTY "BPM_REGISTRY_${pkg_name}_GIT_TAGS")
-
-        if("BPM_REGISTRY_${pkg_name}_GIT_TAGS_")
-            set(tags "${BPM_REGISTRY_${pkg_name}_GIT_TAGS_}")
+        message(STATUS "cache tags from package '${pkg_name}'")
+        if(DEFINED BPM_REGISTRY_${pkg_name}_GIT_TAGS)
+            message(STATUS "  load tags from existing cache")
+            set(tags "${BPM_REGISTRY_${pkg_name}_GIT_TAGS}")
         else()
+            message(STATUS "  load tags from mirror repository")
             # if tags have not been acquired - load them
-            execute_process(COMMAND "git --git-dir=${mirror_dir} tag" RESULT_VARIABLE res OUTPUT_VARIABLE tags)
+            execute_process(COMMAND git "--git-dir=${mirror_dir}" tag --sort=-committerdate RESULT_VARIABLE res OUTPUT_VARIABLE tags)
             if(NOT res EQUAL 0)
                 message(FATAL_ERROR "BPM [${pkg_name}]: Failed to get tags from mirror: ${mirror_dir}. `git --git-dir=${mirror_dir} tag` returned: ${res}")
             endif()
@@ -764,69 +887,59 @@ function(bpm_solve_dependencies in_packages out_selected_list)
             string(REPLACE "\n" ";" tags "${tags}")
 
             # cache tags
-            set_property(GLOBAL PROPERTY "BPM_REGISTRY_${pkg_name}_GIT_TAGS" "${tags}")
+            set("BPM_REGISTRY_${pkg_name}_GIT_TAGS" "${tags}")
         endif()
 
-        # check if the version range is fully contained with the mirrors tags
-        bpm_fully_contains_tag_range("${tags}" "${pkg_version_range}" contains)
+        if(NOT mirror_${pkg_name}_up_to_date)
+            # check if the version range is fully contained with the mirrors tags
+            message(STATUS "  [${pkg_name}] check if mirror is new enough for the required versions")
+            bpm_fully_contains_tag_range("${tags}" "${pkg_version_range}" contains)
 
-        # fetch if upper version bound is inf or tag is not contained
-        if(NOT contains)
-            bpm_mirror_fetch_new_tags(${pkg_name} ${mirror_dir})
-        endif()
+            # fetch if upper version bound is inf or tag is not contained
+            if(NOT contains)
+                message(STATUS "  [${pkg_name}] mirror might be out of date --> check for updates")
+                bpm_mirror_fetch_new_tags(${pkg_name} ${mirror_dir})
 
-        bpm_filter_version_tags("${tags}" "${VERSION_RANGE}" tag_wheel)
-
-        # extract the version numbers from the tag_wheel
-        set(version_wheel "")
-        foreach(tag IN LISTS tag_wheel)
-            string(REGEX MATCH "([0-9]+\\.[0-9]+\\.[0-9]+)" _ "${VALUE}")
-            if(CMAKE_MATCH_0)
-                set(version ${CMAKE_MATCH_1})
-                LIST(APPEND version_wheel "${version}")
-                # also make a quick lookup
-                set("tag_lookup_${version}" "${tag}")
+                set(mirror_${pkg_name}_up_to_date TRUE)
+            else()
+                message(STATUS "  [${pkg_name}] mirror contains required versions --> not updated")
             endif()
-        endforeach()
-
-        endforeach()
-        if(NOT version_wheel)
-            message(FATAL_ERROR "BPM: Error: no version tags match the version range\n  Package: ${PKG_NAME}\n  Required from: ${REQUIRED_FROM}\n  Version range: ${version_lower} - ${version_upper}\n  Version Tags: ${tags}")
+        else()
+            message(STATUS "  [${pkg_name}] is up-to-date: no need to fetch again - skipped")
         endif()
 
-        set(tag_wheel "")
-
-        # now try all version from high to low
-        list(SORT version_wheel COMPARE VERSION ORDER DESCENDING)
-
-        # build tag wheel from version wheel
-        foreach(version IN LISTS version_wheel)
-            # build new selected list
-            set(git_tag "${tag_lookup_${version}}")
-            list(APPEND tag_wheel ${git_tag})
-        endforeach()
+        message(STATUS "create tag wheel")
+        bpm_filter_version_tags("${tags}" "${pkg_version_range}" tag_wheel)
+        message(STATUS "create tag wheel: ${tag_wheel}")
 
         list(POP_FRONT tag_wheel top_version)
+        message(STATUS "pop front: new wheel: ${tag_wheel}, popped: ${top_version}")
 
-        execute_process(COMMAND "git --git-dir=${mirror_dir} show ${top_version}:.bpm-registry" RESULT_VARIABLE res OUTPUT_VARIABLE metadata ERROR_QUIET)
-        
+        message(STATUS "load registry from ${pkg_name} at version ${top_version}")
+        execute_process(COMMAND git "--git-dir=${mirror_dir}" cat-file blob "${top_version}:.bpm-registry" RESULT_VARIABLE res OUTPUT_VARIABLE metadata ERROR_QUIET)
+
         string(REPLACE "\r\n" "\n" metadata_list "${metadata}") # replace new lines windows to unix style
         string(REPLACE "\n" ";" metadata_list "${metadata_list}") # replace new lines with ; for list seperators
 
-        message(STATUS "${metadata_list}")
+        message(STATUS "loaded registry: ${metadata_list}")
 
-        if(res EQUAL 0)
-            foreach(line IN LISTS "${metadata_list}")
+        message(STATUS "Turn fetched registry into todo list")
+        if(res EQUAL 0)            
+            foreach(line IN LISTS metadata_list)
                 if(line)
-                    list(APPEND todo_list line)
+                    list(APPEND todo_list ${line})
                 endif()
             endforeach()
         endif()
+        message(STATUS "  ${pkg_name}: todo list: ${todo_list}")
+
+        
 
         # no registry found --> no more entries added to the todo list --> make decision and continue
         math(EXPR next_decision_counter "${decision_counter} + 1")
         
-        set(entry "NAME ${pkg_name} VERSION ${top_version} GIT_REPO ${git_repo}")
+        set(entry "NAME ${pkg_name} VERSION ${top_version} GIT_REPO ${pkg_git_repo}")
+        message(STATUS "New decision entry: ${entry}")
 
         set("decision_${next_decision_counter}_todo_list" "${todo_list}")
         set("decision_${next_decision_counter}_selected_list" "${decision_${decision_counter}_selected_list};${entry}")
@@ -839,120 +952,24 @@ function(bpm_solve_dependencies in_packages out_selected_list)
 
         set(decision_counter "${next_decision_counter}")
 
+        # print current decision
+        message("made new decision")
+        set(short_to_do "")
+        foreach(todo IN LISTS decision_${decision_counter}_todo_list)
+            bpm_parse_registry_range_entry("${todo}" pkg_name pkg_version_range pkg_git_tag pkg_git_repo)
+            list(APPEND short_to_do "${pkg_name}")
+        endforeach()
+        message(STATUS "decision: ${decision_counter}, todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${decision_${decision_counter}_range}, wheel: ${decision_${decision_counter}_tag_wheel}")
+
+        # so far so good. now debug the next iterations
+        message(FATAL_ERROR "DEBUG BREAK")
     endwhile()
 
+    set("${out_selected_list}" "${decision_${decision_counter}_selected_list}" PARENT_SCOPE)
+
 endfunction()
 
 #
-# @param in_pkg the package to solve for given as the string: "NAME <name> VERSION_RANGE <version-range> GIT_TAG <git_tag> GIT_REPO <git_repo>"
-# @param in_selected_list a list of the selected package names and versions: "NAME <name> VERSION <version> GIT_TAG <git_tag> GIT_REPO <git_repo>"
-#
-# failed if out_selected_list is empty
-#
-function(bpm_solve_dependencies in_pkg in_selected_list out_selected_list out_success)
-    bpm_parse_registry_range_entry("${in_pkg}" pkg_name pkg_version_range pkg_git_tag pkg_git_repo)
-    
-    # check if the package is already in the selected list
-    foreach(selected IN LISTS in_selected_list)
-        bpm_parse_registry_version_entry("${selected}" sel_name sel_version sel_git_tag sel_git_repo)
-        if(("${sel_name}" STREQUAL "${pkg_name}") OR ("${pkg_git_repo}" STREQUAL "${sel_git_repo}"))
-            # repo conflict?
-            if(NOT "${pkg_git_repo}" STREQUAL "${sel_git_repo}")
-                message(FATAL_ERROR  "Repository conflict\n  Package: ${pkg_name}\n  Repository 1: ${pkg_git_repo}\n  Repository 2: ${sel_git_repo}")
-            endif()
-
-            # package name conflict ? 
-            if(NOT "${pkg_name}" STREQUAL "${sel_name}")
-                message(FATAL_ERROR  "Package name conflict\n  Repository: ${pkg_git_repo}\n  Package 1: ${pkg_name}\n  Package 2: ${sel_name}")
-            endif()
-
-            # check if the selected version is in the constraint
-            bpm_is_version_in_range("${sel_version}" "${pkg_version_range}" is_in_range)
-            if(is_in_range)
-                # no version conflict
-                # version resolved - no need to go through dependencies - another recursion is already doing it
-                set(out_selected_list "${in_selected_list}" PARENT_SCOPE) # empty list
-                set(out_success TRUE PARENT_SCOPE) # no success
-                return()
-            elseif()
-                # found a version conflict --> pop
-                set(out_selected_list "" PARENT_SCOPE) # empty list
-                set(out_success FALSE PARENT_SCOPE) # no success
-                return()
-            endif()
-        endif()
-    endforeach()
-
-    # package is not yet in the selected list
-    # build the version wheel for this pakcage
-    set(mirror_dir "${BPM_CACHE_DIR}/${pkg_name}/mirror")
-
-    # see if tags have already been acquired
-    get_property("BPM_REGISTRY_${pkg_name}_GIT_TAGS_" GLOBAL PROPERTY "BPM_REGISTRY_${pkg_name}_GIT_TAGS")
-
-    if("BPM_REGISTRY_${pkg_name}_GIT_TAGS_")
-        set(tags "${BPM_REGISTRY_${pkg_name}_GIT_TAGS_}")
-    else()
-        # if tags have not been acquired - load them
-        execute_process(COMMAND "git --git-dir=${mirror_dir} tag" RESULT_VARIABLE res OUTPUT_VARIABLE tags)
-        if(NOT res EQUAL 0)
-            message(FATAL_ERROR "BPM [${pkg_name}]: Failed to get tags from mirror: ${mirror_dir}. `git --git-dir=${mirror_dir} tag` returned: ${res}")
-        endif()
-
-        # turn the console output into a CMake list
-        string(REPLACE "\r\n" "\n" tags "${tags}")
-        string(REPLACE "\n" ";" tags "${tags}")
-
-        # cache tags
-        set_property(GLOBAL PROPERTY "BPM_REGISTRY_${pkg_name}_GIT_TAGS" "${tags}")
-    endif()
-
-    # check if the version range is fully contained with the mirrors tags
-    bpm_fully_contains_tag_range("${tags}" "${pkg_version_range}" contains)
-
-    # fetch if upper version bound is inf
-    if(NOT contains)
-        bpm_mirror_fetch_new_tags(${pkg_name} ${mirror_dir})
-    endif()
-
-    bpm_filter_version_tags("${tags}" "${VERSION_RANGE}" tag_wheel)
-
-    # extract the version numbers from the tag_wheel
-    set(version_wheel "")
-    foreach(tag IN LISTS tag_wheel)
-        string(REGEX MATCH "([0-9]+\\.[0-9]+\\.[0-9]+)" _ "${VALUE}")
-        if(CMAKE_MATCH_0)
-            set(version ${CMAKE_MATCH_1})
-            LIST(APPEND version_wheel "${version}")
-            # also make a quick lookup
-            set("tag_lookup_${version}" "${tag}")
-        endif()
-    endforeach()
-
-    endforeach()
-    if(NOT version_wheel)
-        message(FATAL_ERROR "BPM: Error: no version tags match the version range\n  Package: ${PKG_NAME}\n  Required from: ${REQUIRED_FROM}\n  Version range: ${version_lower} - ${version_upper}\n  Version Tags: ${tags}")
-    endif()
-
-    # now try all version from high to low
-    list(SORT version_wheel COMPARE VERSION ORDER DESCENDING)
-    foreach(version IN LISTS version_wheel)
-        # build new selected list
-        set(git_tag "${tag_lookup_${version}}")
-        set(entry "NAME ${pkg_name} VERSION ${version} GIT_TAG ${git_tag} GIT_REPO ${pkg_git_repo}")
-        set(new_selected_list "${in_selected_list};entry")
-
-        # fetch dependency list from the package
-        execute_process(COMMAND "git --git-dir=${mirror_dir} show ${highest_version}:.bpm-registry" RESULT_VARIABLE res OUTPUT_VARIABLE metadata ERROR_QUIET)
-        if(NOT res EQUAL 0)
-            # package does not have extra dependencies to look at --> finished
-            #### FUUUUK I MESSED UP
-            #### I DO NOT HAVE PERFECT BACK PROPAGATION THIS WAY, I NEED TO PROPAGATE INTO VISITED DEPENDENCY BRANCHES FIRST BEFORE POPPING TO 
-            #### THE MAIN NODE AND TRYING A NEW VERSION NUMBER ON IT
-        endif()
-    endforeach()
-endfunction()
-
 function(BPMMakeAvailable)
 
     bpm_get_cache_dir(BPM_CACHE_DIR)
@@ -975,134 +992,15 @@ function(BPMMakeAvailable)
         
     endforeach()
     file(APPEND "${CMAKE_CURRENT_SOURCE_DIR}/.bpm-registry" "${registry_content}\n")
+    string(REPLACE "\r\n" "\n" registry_content "${registry_content}")
+    string(REPLACE "\n" ";" registry_content "${registry_content}")
 
-    # get registries from all dependencies
-    set(BPM_EXTERNAL_REGISTRY "")
-    foreach(PKG_NAME IN LISTS BPM_REGISTRY_)
+    message(STATUS "registry_content: ${registry_content}")
 
-        get_property(REQUIRED_FROM GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_REQUIRED_FROM")
-        get_property(VERSION_RANGE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_VERSION_RANGE")
-        get_property(GIT_TAG GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_TAG")
-        get_property(GIT_REPOSITORY GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_REPOSITORY")
+    bpm_solve_dependencies("${registry_content}" solution)
 
-        if(VERSION_RANGE)
-            list(GET VERSION_RANGE 0 version_lower)
-            list(GET VERSION_RANGE 1 version_upper)
-        else()
-            message(FATAL_ERROR "BPM: BPMMakeAvailable: Non-version tags are not supported yet.")
-        endif()
+    message(STATUS "solution: ${solution}")
 
-        # make sure that all mirrors are downloaded
-        set(mirror_dir ${BPM_CACHE_DIR}/${PKG_NAME}/mirror)
-        bpm_clone_repository_if_needed("${PKG_NAME}" "${GIT_REPOSITORY}" ${mirror_dir})
-        
-        # find all tags that match the version range
-        execute_process(COMMAND "git --git-dir=${mirror_dir} tag" RESULT_VARIABLE res OUTPUT_VARIABLE tags)
-        if(NOT res EQUAL 0)
-            message(FATAL_ERROR "BPM [${PKG_NAME}]: Failed to get tags from mirror: ${mirror_dir}. `git --git-dir=${mirror_dir} tag` returned: ${res}")
-        endif()
-
-        # turn the console command into a CMake list
-        string(REPLACE "\r\n" "\n" tags "${tags}")
-        string(REPLACE "\n" ";" tags "${tags}")
-
-        # check if the version range is fully contained with the mirrors tags
-        bpm_fully_contains_tag_range("${tags}" "${VERSION_RANGE}" contains)
-
-        # fetch if upper version bound is inf
-        if(NOT contains)
-            bpm_mirror_fetch_new_tags(${PKG_NAME} ${mirror_dir})
-        endif()
-
-        bpm_filter_version_tags("${tags}" "${VERSION_RANGE}" filtered_version_tags)
-        if(NOT filtered_version_tags)
-            message(FATAL_ERROR 
-                "BPM: Error: no version tags match the version range\n"
-                "  Package: ${PKG_NAME}\n"
-                "  Required from: ${REQUIRED_FROM}\n"
-                "  Version range: ${version_lower} - ${version_upper}\n"
-                "  Version Tags: ${tags}")
-        endif()
-
-        bpm_highest_version("${filtered_version_tags}" highest_version)
-        message(STATUS "BPM [${PKG_NAME}]: highest_version: ${highest_version}")
-
-        # record the highest versions of all packages
-        list(APPEND "BPM_REGISTRY_PACKAGE_VERSIONS_${PKG_NAME}" "${highest_version}")
-        list(REMOVE_DUPLICATES "BPM_REGISTRY_PACKAGE_VERSIONS_${PKG_NAME}")
-
-        # TODO: continue building the external registry
-        # grab the .bpm-registry from library, if it exists and add its dependencies
-
-        execute_process(COMMAND "git --git-dir=${mirror_dir} show ${highest_version}:.bpm-registry" RESULT_VARIABLE res OUTPUT_VARIABLE metadata ERROR_QUIET)
-        if(res EQUAL 0)
-            # replace: root requirement with the actual package and version that requires it
-            string(REPLACE "REQUIRED_FROM /" "REQUIRED_FROM ${PKG_NAME}_${highest_version}" metadata "${metadata}")
-
-            if(NOT "${BPM_EXTERNAL_REGISTRY_${PKG_NAME}_${highest_version}_ADDED}")
-                list(APPEND BPM_EXTERNAL_REGISTRY "${PKG_NAME}_${highest_version}")
-                set("BPM_EXTERNAL_REGISTRY_${PKG_NAME}_${highest_version}_ADDED" TRUE)
-                
-                set("BPM_EXTERNAL_REGISTRY_${PKG_NAME}_${highest_version}_DEPS" "")
-
-                string(REPLACE "\r\n" "\n" metadata_list "${metadata}") # replace new lines windows to unix style
-                string(REPLACE "\n" ";" metadata_list "${metadata_list}") # replace new lines with ; for list seperators
-
-                message(STATUS "${metadata_list}")
-
-                
-                foreach(line IN LISTS metadata_list)
-                    bpm_parse_registry_entry("${line}" dep_name dep_version_range dep_git_tag dep_git_repository)
-                    if(dep_name)
-                        # assume an empty line otherwise
-                        list(APPEND "BPM_EXTERNAL_REGISTRY_${PKG_NAME}_${highest_version}_DEPS" "${dep_name}")
-                        list(APPEND "BPM_EXTERNAL_REGISTRY_${dep_name}_PARENTS" "${PKG_NAME}_${highest_version}")
-                        list(REMOVE_DUPLICATES "BPM_EXTERNAL_REGISTRY_${dep_name}_PARENTS")
-                        set("BPM_EXTERNAL_REGISTRY_${PKG_NAME}_${highest_version}_${dep_name}_VERSION_RANGE" "${dep_version_range}")
-                        set("BPM_EXTERNAL_REGISTRY_${PKG_NAME}_${highest_version}_${dep_name}_GIT_TAG" "${dep_git_tag}")
-                        set("BPM_EXTERNAL_REGISTRY_${PKG_NAME}_${highest_version}_${dep_name}_GIT_REPOSITORY" "${dep_git_repository}")
-                    endif()
-
-                endforeach()
-            else()
-                # TODO: Verify and double check the existing entry
-
-            endif()
-
-            message(STATUS "BPM [${PKG_NAME}]: ${metadata}")
-            file(APPEND "${CMAKE_CURRENT_SOURCE_DIR}/.bpm-registry" "${metadata}\n")
-            
-        else()
-            message(STATUS "BPM [${PKG_NAME}]: Does not contain a bpm registry file `.bpm-registry`")
-        endif()
-        
-    endforeach()
-
-    # print the registry:
-    message(STATUS "BPM_EXTERNAL_REGISTRY: ")
-    foreach(ext_reg IN LISTS BPM_EXTERNAL_REGISTRY)
-        message(STATUS "  ${ext_reg}")
-        foreach(dep IN LISTS BPM_EXTERNAL_REGISTRY_${ext_reg}_DEPS)
-            set(version_range "${BPM_EXTERNAL_REGISTRY_${ext_reg}_${dep}_VERSION_RANGE}")
-            set(git_tag "${BPM_EXTERNAL_REGISTRY_${ext_reg}_${dep}_GIT_TAG}")
-            set(git_repository "${BPM_EXTERNAL_REGISTRY_${ext_reg}_${dep}_GIT_REPOSITORY}")
-            set(parents "${BPM_EXTERNAL_REGISTRY_${dep}_PARENTS}")
-            set(highest_versions "${BPM_REGISTRY_PACKAGE_VERSIONS_${PKG_NAME}}")
-            message(STATUS "    ${dep}: version range: ${version_range}, tag: ${git_tag}, repo: ${git_repository}, parents: ${parents}, highest_versions: ${highest_versions}")
-            message(FATAL_ERROR "TODO: record the hightes version of all packages")
-        endforeach()
-        
-    endforeach()
-    
-
-    #message(FATAL_ERROR "TODO: Now to the real part, build the actual solver")
-
-    set(PKG_CMAKE_ARGS "")
-    if(PKG_OPTIONS)
-        foreach(opt IN LISTS PKG_OPTIONS)
-            list(APPEND PKG_CMAKE_ARGS "-D${opt}")
-        endforeach()
-    endif()
 
 endfunction()
 
