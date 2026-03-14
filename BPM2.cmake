@@ -298,13 +298,11 @@ function(BPMAddInstallPackage)
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_VERSION_RANGE" "${PKG_VERSION_RANGE}")
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_TAG" "${PKG_GIT_TAG}") # TODO rename to constraint
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_REPOSITORY" "${PKG_GIT_REPOSITORY}")
+        set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES" "${PKG_PACKAGES}")
 
         # sort options
-        set(_sorted_options "${PKG_OPTIONS}")
-        list(SORT _sorted_options)
-        string(JOIN ";" _sorted_options_string ${_sorted_options})
-        set(PKG_OPTIONS_SORTED "${_sorted_options_string}")
-        set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS" "${PKG_OPTIONS_SORTED}")
+        list(SORT PKG_OPTIONS)
+        set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS" "${PKG_OPTIONS}")
     else()
         message(WARNING "BPM [${PKG_NAME}]: Defined twice in the same project")
 
@@ -323,17 +321,20 @@ function(BPMAddInstallPackage)
 
         set_property(GLOBAL PROPERTY BPM_REGISTRY_${PKG_NAME}_VERSION_RANGE "${intersec_version_range}")
 
-        # sort options
-        set(_sorted_options "${PKG_OPTIONS}")
-        list(SORT _sorted_options)
-        string(JOIN ";" _sorted_options_string ${_sorted_options})
-        set(PKG_OPTIONS_SORTED "${_sorted_options_string}")
         # check if there is an option conflict:
+        list(SORT PKG_OPTIONS)
         get_property(REGISTERED_OPTIONS GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS")
-        if(NOT "${REGISTERED_OPTIONS}" STREQUAL "${PKG_OPTIONS_SORTED}")
-            message(FATAL_ERROR "BPM [${PKG_NAME}]: options conflict: new: '${REGISTERED_OPTIONS}', previously defined: '${PKG_OPTIONS_SORTED}'")
+        if(NOT "${REGISTERED_OPTIONS}" STREQUAL "${PKG_OPTIONS}")
+            message(FATAL_ERROR "BPM [${PKG_NAME}]: options conflict: new: '${REGISTERED_OPTIONS}', previously defined: '${PKG_OPTIONS}'")
         endif()
-        set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS" "${PKG_OPTIONS_SORTED}")
+
+        # check if there is a packages conflict
+        get_property(REGISTERED_PACKATES GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES")
+        set(JOINED_PACKAGES ${PKG_PACKAGES} ${REGISTERED_PACKATES})
+        list(REMOVE_DUPLICATES JOINED_PACKAGES)
+        set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES" "${JOINED_PACKAGES}")
+
+
     endif()
 
     set_property(GLOBAL PROPERTY "BPM_${PKG_NAME}_ADDED" TRUE)
@@ -890,11 +891,138 @@ function(bpm_create_manifest OUT_MANIFEST OUT_HASH)
         if(DEFINED ${var})
             set(_value "${${var}}")
         else()
-            set(_value "<UNDEFINED>")
+            set(_value "")
         endif()
         string(APPEND _manifest "${var}=${_value}\n")
     endforeach()
     set(${OUT_MANIFEST} "${_manifest}" PARENT_SCOPE)
+endfunction()
+
+function(bpm_try_find_packages lib_name packages library_install_dir OUT_FOUND_ALL)
+    set(all_packages_found TRUE)
+    file(RELATIVE_PATH rel_install_dir "${CMAKE_SOURCE_DIR}" "${library_install_dir}")
+    foreach(package IN LISTS packages)
+        # unset for deterministic find without sideeffects
+        unset(${package}_DIR CACHE)
+        if(PKG_VERBOSE)
+            find_package(${package} CONFIG NO_DEFAULT_PATH PATHS "${library_install_dir}")
+        else()
+            find_package(${package} QUIET CONFIG NO_DEFAULT_PATH PATHS "${library_install_dir}")
+        endif()
+        unset(${package}_DIR)
+        if(${package}_FOUND)
+            message(STATUS "BPM [${lib_name}]: Find package : ${package} - found: in ./${rel_install_dir}")
+        else()
+            message(STATUS "BPM [${lib_name}]: WARNING: Find package : ${package} - missing")
+            set(all_packages_found FALSE)
+        endif()
+    endforeach()
+
+    set(${OUT_FOUND_ALL} ${all_packages_found} PARENT_SCOPE)
+endfunction()
+
+#
+# @brief Finds all options that contain `test` or `example` (case insensitive) in a file
+#
+function(bpm_find_test_example_options cmake_file result_var)
+    file(READ "${cmake_file}" content)
+
+    set(test_regex "[Tt][Ee][Ss][Tt]")
+    set(example_regex "[Ee][Xx][Aa][Mm][Pp][Ll][Ee]")
+    set(test_or_example_regex "(${test_regex}|${example_regex})")
+
+    set(regex_str "option[ \t\r\n]*\\([ \t\r\n]*([A-Za-z0-9_]*${test_or_example_regex}[A-Za-z0-9_]*)")
+
+    # Find all option(...) occurrences
+    string(REGEX MATCHALL
+        "${regex_str}"
+        matches
+        "${content}"
+    )
+
+    set(found_options "")
+
+    foreach(m ${matches})
+        string(REGEX REPLACE
+            "${regex_str}"
+            "\\1"
+            opt
+            "${m}"
+        )
+        list(APPEND found_options "${opt}")
+    endforeach()
+
+    set(${result_var} "${found_options}" PARENT_SCOPE)
+endfunction()
+
+#
+# @brief Finds all options recursively in the provided folder that contain `test` or `example` (case insensitive) in a file
+#
+function(bpm_find_test_example_options_r search_folder result_var)
+    file(GLOB_RECURSE cmake_files "${search_folder}/CMakeLists.txt" "${search_folder}/*.cmake")
+
+    set(all_flags "")
+
+    foreach(file_ ${cmake_files})
+        bpm_find_test_example_options(${file_} flags_)
+        list(APPEND all_flags ${flags_})
+    endforeach()
+
+    list(REMOVE_DUPLICATES all_flags)
+    set(${result_var} "${all_flags}" PARENT_SCOPE)
+endfunction()
+
+function(bpm_configure_library lib_name library_src_dir library_build_dir cmake_build_args)
+
+    # parse the libraries cmake lists for flags that enable tests and disable them
+    bpm_find_test_example_options_r("${library_src_dir}" test_example_options)
+    set(cmake_disable_test_example_flags "")
+
+    foreach(flag ${test_example_options})
+        list(APPEND cmake_disable_test_example_flags "-D${flag}=OFF")
+    endforeach()
+
+    set(toolchain_args "")
+    
+    if(CMAKE_TOOLCHAIN_FILE)
+        list(APPEND toolchain_args "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
+    else()
+        list(APPEND toolchain_args
+            "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
+            "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        )
+    endif()
+
+    message(FATAL_ERROR "TODO: Check if this library uses BPM (has a .bpm-registry). If yes: pass the version solutions as a variable")
+
+    execute_process(
+        COMMAND ${CMAKE_COMMAND}
+        -S "${library_src_dir}"
+        -B "${library_build_dir}"
+        -G "${CMAKE_GENERATOR}"
+        
+        -DCMAKE_BUILD_TYPE=${BPM_BUILD_TYPE}
+        -DCMAKE_INSTALL_PREFIX=${library_install_dir}
+        -DCMAKE_POSITION_INDEPENDENT_CODE=${CMAKE_POSITION_INDEPENDENT_CODE}
+        -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
+        
+        ${cmake_build_args}
+        ${toolchain_args}
+        ${cmake_disable_test_example_flags}
+
+        "-DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+        "-DCMAKE_GENERATOR=${CMAKE_GENERATOR}"
+
+        RESULT_VARIABLE res
+        ${execute_process_quiet}
+    )
+
+    if(res EQUAL 0)
+        message(STATUS "BPM [${lib_name}]: Configuring - done")
+    else() 
+        message(STATUS "BPM [${lib_name}]: Configuring - failed")
+    endif()
+
 endfunction()
 
 #
@@ -981,6 +1109,11 @@ function(BPMMakeAvailable)
 
         get_property(PKG_OPTIONS GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS")
 
+        execute_process(COMMAND git "--git-dir=${lib_mirror_dir}" rev-parse "${PKG_VERSION}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE PKG_GIT_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE)
+        if(NOT res EQUAL 0)
+            message(FATAL_ERROR "BPM [${PKG_NAME}]: Could not convert '${PKG_VERSION}' to commit-hash in mirror '${lib_mirror_dir}'")
+        endif()
+
         # turn tag into commit hash
         bpm_create_manifest(manifest
             CMAKE_C_COMPILER_ID
@@ -1001,24 +1134,51 @@ function(BPMMakeAvailable)
         ) 
 
         string(SHA256 manifest_hash "${manifest}")
-        string(SUBSTRING "${manifest_hash}" 0 16 short_hash)
+        string(SUBSTRING "${manifest_hash}" 0 16 SHORT_MANIFEST_HASH)
+        string(SUBSTRING "${PKG_GIT_COMMIT}" 0 16 PKG_GIT_COMMIT_HASH)
 
         # -------------------------------
         # Define hashed directories
         # -------------------------------
 
-        set(library_build_dir "${BPM_CACHE_DIR}/${PKG_NAME}/build/${SHORT_HASH}")
-        set(library_install_dir "${BPM_CACHE_DIR}/${PKG_NAME}/install/${SHORT_HASH}")
+        set(library_src_dir "${BPM_CACHE_DIR}/${PKG_NAME}/src/${PKG_GIT_COMMIT_HASH}")
+        set(library_build_dir "${BPM_CACHE_DIR}/${PKG_NAME}/build/${SHORT_MANIFEST_HASH}")
+        set(library_install_dir "${BPM_CACHE_DIR}/${PKG_NAME}/install/${SHORT_MANIFEST_HASH}")
         set(manifest_dir "${BPM_CACHE_DIR}/${PKG_NAME}/manifest")
-        set(manifest_file_path "${BPM_CACHE_DIR}/${PKG_NAME}/manifest/${SHORT_HASH}.manifest")
+        set(manifest_file_path "${BPM_CACHE_DIR}/${PKG_NAME}/manifest/${SHORT_MANIFEST_HASH}.manifest")
 
-        message(FATAL_ERROR "TODO: CONTINUE FROM HERE")
+        # write manifest
+        if(NOT EXISTS ${manifest_dir})
+            file(MAKE_DIRECTORY "${manifest_dir}")
+        endif()
+
+        if(NOT EXISTS ${manifest_file_path})
+            file(WRITE "${manifest_file_path}" "${manifest}")
+        endif()
+
+        
 
         get_property("BPM_${PKG_NAME}_INSTALL" GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_INSTALL")
         if(BPM_${PKG_NAME}_INSTALL)
             message(STATUS "Installing: ${PKG_NAME}@${PKG_VERSION} : ${PKG_GIT_REPO}")
+
+            get_property(REGISTERED_PACKATES GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES")
+
+            bpm_try_find_packages("${PKG_NAME}" "${REGISTERED_PACKATES}" "${library_install_dir}" all_packages_found)
+            if(NOT all_packages_found)
+                message(STATUS "BPM [${PKG_NAME}]: Find packages - failed: attempt install")
+
+                bpm_configure_library("${BPM_NAME}" "${library_src_dir}" "${library_build_dir}" "${BPM_ARGS}" "${execute_process_quiet}")
+
+            endif()
+
+
+
+            message(FATAL_ERROR "TODO: CONTINUE FROM HERE")
         elseif(BPM_${PKG_NAME}_ADD_SUBDIR)
             message(STATUS "Adding Subdirectory: ${PKG_NAME}@${PKG_VERSION} : ${PKG_GIT_REPO}")
+
+            message(FATAL_ERROR "TODO: CONTINUE FROM HERE")
         endif()
     endforeach()
 
