@@ -137,8 +137,11 @@ function(bpm_parse_short_dependency INPUT out_git_repo out_name out_tag)
     # ------------------------------------------------------------
     # Extract repository name (after last '/' or '\')
     # ------------------------------------------------------------
-    string(REGEX MATCH "([^/\\\\]+)(\\.git)?$" _ "${FULL_PATH}")
+    #string(REGEX MATCH "([^/\\\\]+)\\.git$" _ "${FULL_PATH}")
+    string(REGEX MATCH "^.*[/\\\\]([^/\\\\]+)$" _ "${FULL_PATH}")
     set(NAME "${CMAKE_MATCH_1}")
+    string(REGEX REPLACE "\\.git$" "" NAME "${NAME}")
+
     if(NOT NAME)
         message(FATAL_ERROR "BPM: Could not extract the repository name. Expected: 'paht/name' or `NAME ... GIT_REPOSITORY ... GIT_TAG ...` but got: ${FULL_PATH}")
     endif()
@@ -286,32 +289,28 @@ function(BPMAddInstallPackage)
             set_property(GLOBAL PROPERTY BPM_REGISTRY "${BPM_REGISTRY_}")
         endif()
     else()
-
         set_property(GLOBAL PROPERTY BPM_REGISTRY "${PKG_NAME}")
-
-        # also delete the old registry file when creating a new one
-        if(PROJECT_IS_TOP_LEVEL)
-            if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.bpm-registry")
-                file(REMOVE "${CMAKE_CURRENT_SOURCE_DIR}/.bpm-registry")
-            endif()
-        endif()
     endif()
 
     get_property(BPM_${PKG_NAME}_ADDED_ GLOBAL PROPERTY BPM_${PKG_NAME}_ADDED)
     if(NOT BPM_${PKG_NAME}_ADDED_)
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_REQUIRED_FROM" "/") # from root
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_VERSION_RANGE" "${PKG_VERSION_RANGE}")
-        set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_TAG" "${PKG_GIT_TAG}")
+        set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_TAG" "${PKG_GIT_TAG}") # TODO rename to constraint
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_REPOSITORY" "${PKG_GIT_REPOSITORY}")
+
+        # sort options
+        set(_sorted_options "${PKG_OPTIONS}")
+        list(SORT _sorted_options)
+        string(JOIN ";" _sorted_options_string ${_sorted_options})
+        set(PKG_OPTIONS_SORTED "${_sorted_options_string}")
+        set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS" "${PKG_OPTIONS_SORTED}")
     else()
+        message(WARNING "BPM [${PKG_NAME}]: Defined twice in the same project")
+
         get_property(REGISTERED_GIT_REPOSITORY GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_REPOSITORY")
         if(NOT "${REGISTERED_GIT_REPOSITORY}" STREQUAL "${PKG_GIT_REPOSITORY}")
-            message(FATAL_ERROR 
-                "BPM: Repository Conflict\n"
-                "  Package: ${PKG_NAME}\n"
-                "  Required from: /\n"
-                "  New repo: ${PKG_GIT_REPOSITORY}\n"
-                "  In registry: ${REGISTERED_GIT_REPOSITORY}")
+            message(FATAL_ERROR "BPM [${PKG_NAME}}: Repository Conflict: new: ${PKG_GIT_REPOSITORY}, previously defined: ${REGISTERED_GIT_REPOSITORY}")
         endif()
 
         get_property(REGISTERED_VERSION_RANGE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_VERSION_RANGE")
@@ -319,17 +318,26 @@ function(BPMAddInstallPackage)
         bpm_version_range_intersection("${REGISTERED_VERSION_RANGE}" "${PKG_VERSION_RANGE}" intersec_version_range)
         if(NOT intersec_version_range)
             message(FATAL_ERROR 
-                "BPM: Version Conflict\n" 
-                "  Package: ${PKG_NAME}\n"
-                "  Required from: /\n"
-                "  New repo: ${PKG_VERSION_RANGE}\n"
-                "  In registry: ${REGISTERED_VERSION_RANGE}")
+                "BPM ${PKG_NAME}: Version Conflict, new: ${PKG_VERSION_RANGE}, previously defined: ${REGISTERED_VERSION_RANGE}")
         endif()
 
         set_property(GLOBAL PROPERTY BPM_REGISTRY_${PKG_NAME}_VERSION_RANGE "${intersec_version_range}")
+
+        # sort options
+        set(_sorted_options "${PKG_OPTIONS}")
+        list(SORT _sorted_options)
+        string(JOIN ";" _sorted_options_string ${_sorted_options})
+        set(PKG_OPTIONS_SORTED "${_sorted_options_string}")
+        # check if there is an option conflict:
+        get_property(REGISTERED_OPTIONS GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS")
+        if(NOT "${REGISTERED_OPTIONS}" STREQUAL "${PKG_OPTIONS_SORTED}")
+            message(FATAL_ERROR "BPM [${PKG_NAME}]: options conflict: new: '${REGISTERED_OPTIONS}', previously defined: '${PKG_OPTIONS_SORTED}'")
+        endif()
+        set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS" "${PKG_OPTIONS_SORTED}")
     endif()
 
     set_property(GLOBAL PROPERTY "BPM_${PKG_NAME}_ADDED" TRUE)
+    set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_INSTALL" TRUE)
 
 endfunction()
 
@@ -359,22 +367,6 @@ function(bpm_get_cache_dir RESULT_VAR)
     endif()
 
     set(${RESULT_VAR} "${_value}" PARENT_SCOPE)
-endfunction()
-
-function(bpm_clone_repository_if_needed lib_name git_repo mirror_dir)
-    if(NOT EXISTS "${mirror_dir}/HEAD")
-        message(STATUS "BPM [${lib_name}]: Cloning git repository: ${git_repo} into: ${mirror_dir}")
-        
-        execute_process(COMMAND git clone --mirror "${git_repo}" "${mirror_dir}" --recursive -c advice.detachedHead=false RESULT_VARIABLE res)
-    
-        if(res EQUAL 0)
-            message(STATUS "BPM [${lib_name}]: Cloning git repository - success")
-        else() 
-            message(FATAL_ERROR "BPM [${lib_name}]: Cloning git repository - failed")
-        endif()
-    else()
-        message(STATUS "BPM [${lib_name}]: Mirror already exists: ${mirror_dir}")
-    endif()
 endfunction()
 
 function(bpm_fully_contains_tag_range IN_VERSIONS RANGE OUT)
@@ -467,29 +459,6 @@ function(bpm_filter_version_tags IN_TAGS IN_RANGE OUT_FILTERED_TAGS)
     set(${OUT_FILTERED_TAGS} "${filtered_version_tags}" PARENT_SCOPE)
 endfunction()
 
-function(bpm_highest_version IN_TAGS out_var)
-
-    set(max_version "")
-    set(max_tag "")
-
-    foreach(tag IN LISTS IN_TAGS)
-        string(REGEX MATCH "([0-9]+\\.[0-9]+\\.[0-9]+)" _ "${tag}")
-        if(CMAKE_MATCH_1)
-            set(vtag ${CMAKE_MATCH_1})
-            if(max_version STREQUAL "")
-                set(max_version "${vtag}")
-                set(max_tag "${tag}")
-            elseif("${vtag}" VERSION_GREATER "${max_version}")
-                set(max_version "${vtag}")
-                set(max_tag "${tag}")
-            endif()
-        endif()
-    endforeach()
-
-    set(${out_var} "${max_tag}" PARENT_SCOPE)
-
-endfunction()
-
 function(bpm_parse_registry_range_entry INPUT_LIST OUT_NAME OUT_VERSION_RANGE OUT_GIT_TAG OUT_GIT_REPOSITORY)
     separate_arguments(tokens UNIX_COMMAND "${INPUT_LIST}")
 
@@ -539,55 +508,6 @@ function(bpm_parse_registry_range_entry INPUT_LIST OUT_NAME OUT_VERSION_RANGE OU
 
 endfunction()
 
-function(bpm_parse_registry_version_entry INPUT_LIST OUT_NAME OUT_VERSION OUT_GIT_TAG OUT_GIT_REPOSITORY)
-    separate_arguments(tokens UNIX_COMMAND "${INPUT_LIST}")
-
-    set(name "")
-    set(version "")
-    set(git_tag "")
-    set(git_repository "")
-
-    set(expect "")
-
-    foreach(arg IN LISTS tokens)
-
-        if(arg STREQUAL "NAME")
-            set(expect "NAME")
-            continue()
-        elseif(arg STREQUAL "VERSION")
-            set(expect "VERSION")
-            continue()
-        elseif(arg STREQUAL "GIT_TAG")
-            set(expect "GIT_TAG")
-            continue()
-        elseif((arg STREQUAL "GIT_REPOSITORY") OR (arg STREQUAL "GIT_REPO"))
-            set(expect "GIT_REPOSITORY")
-            continue()
-        endif()
-
-        if(expect STREQUAL "NAME")
-            set(name "${arg}")
-            set(expect "")
-        elseif(expect STREQUAL "VERSION")
-            set(version "${arg}")
-            set(expect "")
-        elseif(expect STREQUAL "GIT_TAG")
-            set(git_tag "${arg}")
-            set(expect "")
-        elseif(expect STREQUAL "GIT_REPOSITORY")
-            set(git_repository "${arg}")
-            set(expect "")
-        endif()
-
-    endforeach()
-
-    set(${OUT_NAME} "${name}" PARENT_SCOPE)
-    set(${OUT_VERSION} "${version}" PARENT_SCOPE)
-    set(${OUT_GIT_TAG} "${git_tag}" PARENT_SCOPE)
-    set(${OUT_GIT_REPOSITORY} "${git_repository}" PARENT_SCOPE)
-
-endfunction()
-
 function(bpm_is_version_in_range in_tag in_range out)
     list(GET in_range 0 range_lower)
     list(GET in_range 1 range_upper)
@@ -631,12 +551,12 @@ function(git_repo_normalize INPUT OUTPUT)
 
     # ssh://git@host/user/repo
     if(url MATCHES "^ssh://")
-        string(REGEX REPLACE "^ssh://([^@]+@)?" "" url "${url}")
+        string(REGEX REPLACE "^ssh://([^@]+@)?" "web://" url "${url}")
     endif()
 
     # http(s)://host/user/repo
     if(url MATCHES "^https?://")
-        string(REGEX REPLACE "^https?://" "" url "${url}")
+        string(REGEX REPLACE "^https?://" "web://" url "${url}")
     endif()
 
     # normalize slashes in case of Windows paths
@@ -669,22 +589,34 @@ function(bpm_solve_dependencies in_packages out_selected_list)
     set(decision_${decision_counter}_git_repo "")
 
     # print current decision
-    set(short_to_do "")
-    foreach(todo IN LISTS decision_${decision_counter}_todo_list)
-        bpm_parse_registry_range_entry("${todo}" pkg_name pkg_version_range pkg_git_tag pkg_git_repo)
-        list(APPEND short_to_do "${pkg_name}")
-    endforeach()
-    message(STATUS "decision: ${decision_counter}, todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${decision_${decision_counter}_range}, wheel: ${decision_${decision_counter}_tag_wheel}")
+    if(BPM_VERBOSE)
+        set(short_to_do "")
+        foreach(todo IN LISTS decision_${decision_counter}_todo_list)
+            set(options)
+            set(oneValueArgs NAME)
+            set(multiValueArgs)
+            separate_arguments(todo_tokens UNIX_COMMAND "${todo}")
+            cmake_parse_arguments(TODO "${options}" "${oneValueArgs}" "${multiValueArgs}" ${todo_tokens})
+            list(APPEND short_to_do "${TODO_NAME}")
+        endforeach()
+        message(STATUS "decision: ${decision_counter} | todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${decision_${decision_counter}_range}, wheel: ${decision_${decision_counter}_tag_wheel}")
+    endif()
 
     set(solved_one FALSE)
     set(version_conflict FALSE)
 
     while(decision_${decision_counter}_todo_list)
-        
-
+    
         set(todo_list ${decision_${decision_counter}_todo_list})
         list(POP_FRONT todo_list pkg)
         bpm_parse_registry_range_entry("${pkg}" pkg_name pkg_version_range pkg_git_tag pkg_git_repo)
+
+        #set(options)
+        #set(oneValueArgs NAME VERSION GIT_TAG GIT_REPO)
+        #set(multiValueArgs)
+        #separate_arguments(selected_tokens UNIX_COMMAND "${selected}")
+        #cmake_parse_arguments(SEL "${options}" "${oneValueArgs}" "${multiValueArgs}" ${selected_tokens})
+
         
         set(mirror_dir "${BPM_CACHE_DIR}/${pkg_name}/mirror")
 
@@ -700,13 +632,18 @@ function(bpm_solve_dependencies in_packages out_selected_list)
                 LIST(APPEND decision_${decision_counter}_selected_list "${entry}")
 
                 # print current decision
-                message(STATUS "updated decision: ${decision_counter}")
-                set(short_to_do "")
-                foreach(todo IN LISTS decision_${decision_counter}_todo_list)
-                    bpm_parse_registry_range_entry("${todo}" pkg_name pkg_version_range pkg_git_tag pkg_git_repo)
-                    list(APPEND short_to_do "${pkg_name}")
-                endforeach()
-                message(STATUS "decision: ${decision_counter}, todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${decision_${decision_counter}_range}, wheel: ${decision_${decision_counter}_tag_wheel}")
+                if(BPM_VERBOSE)
+                    set(short_to_do "")
+                    foreach(todo IN LISTS decision_${decision_counter}_todo_list)
+                        set(options)
+                        set(oneValueArgs NAME)
+                        set(multiValueArgs)
+                        separate_arguments(todo_tokens UNIX_COMMAND "${todo}")
+                        cmake_parse_arguments(TODO "${options}" "${oneValueArgs}" "${multiValueArgs}" ${todo_tokens})
+                        list(APPEND short_to_do "${TODO_NAME}")
+                    endforeach()
+                    message(STATUS "update decision: ${decision_counter} | todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${decision_${decision_counter}_range}, wheel: ${decision_${decision_counter}_tag_wheel}")
+                endif()
 
                 # retry logic with lower version
                 set(version_conflict FALSE)
@@ -715,7 +652,9 @@ function(bpm_solve_dependencies in_packages out_selected_list)
             else()
                 # no more versions to try
                 # delete this entry 
-                message(STATUS "version conflict: pop decision: ${decision_counter}")
+                if(BPM_VERBOSE)
+                    message(STATUS "version conflict: pop decision: ${decision_counter}")
+                endif()
 
                 set(decision_${decision_counter}_todo_list "")
                 set(decision_${decision_counter}_selected_list "")
@@ -738,28 +677,30 @@ function(bpm_solve_dependencies in_packages out_selected_list)
         set(solved_one FALSE)
         set(version_conflict FALSE)
 
-        
-
         # check if the package is already in the selected list
         foreach(selected IN LISTS decision_${decision_counter}_selected_list)
-            bpm_parse_registry_version_entry("${selected}" sel_name sel_version sel_git_tag sel_git_repo)
+            set(options)
+            set(oneValueArgs NAME VERSION GIT_TAG GIT_REPO)
+            set(multiValueArgs)
+            separate_arguments(selected_tokens UNIX_COMMAND "${selected}")
+            cmake_parse_arguments(SEL "${options}" "${oneValueArgs}" "${multiValueArgs}" ${selected_tokens})
 
-            if(("${sel_name}" STREQUAL "${pkg_name}") OR ("${pkg_git_repo}" STREQUAL "${sel_git_repo}"))
+            if(("${SEL_NAME}" STREQUAL "${pkg_name}") OR ("${pkg_git_repo}" STREQUAL "${SEL_GIT_REPO}"))
                 # repo conflict?
 
-                git_repo_equal("${pkg_git_repo}" "${sel_git_repo}" are_repos_equal)
+                git_repo_equal("${pkg_git_repo}" "${SEL_GIT_REPO}" are_repos_equal)
 
                 if(NOT are_repos_equal)
-                    message(FATAL_ERROR  "Repository conflict\n  Package: ${pkg_name}\n  Repository 1: ${pkg_git_repo}\n  Repository 2: ${sel_git_repo}")
+                    message(FATAL_ERROR  "Repository conflict\n  Package: ${pkg_name}\n  Repository 1: ${pkg_git_repo}\n  Repository 2: ${SEL_GIT_REPO}")
                 endif()
 
                 # package name conflict ? 
-                if(NOT "${pkg_name}" STREQUAL "${sel_name}")
-                    message(FATAL_ERROR  "Package name conflict\n  Repository: ${pkg_git_repo}\n  Package 1: ${pkg_name}\n  Package 2: ${sel_name}")
+                if(NOT "${pkg_name}" STREQUAL "${SEL_NAME}")
+                    message(FATAL_ERROR  "Package name conflict\n  Repository: ${pkg_git_repo}\n  Package 1: ${pkg_name}\n  Package 2: ${SEL_NAME}")
                 endif()
 
                 # check if the selected version is in the constraint
-                bpm_is_version_in_range("${sel_version}" "${pkg_version_range}" is_in_range)
+                bpm_is_version_in_range("${SEL_VERSION}" "${pkg_version_range}" is_in_range)
                 
                 if(is_in_range)
                     # no version conflict - already part of the list
@@ -769,7 +710,7 @@ function(bpm_solve_dependencies in_packages out_selected_list)
                     set(decision_${next_decision_counter}_todo_list "${todo_list}")
                     set(decision_${next_decision_counter}_selected_list "${decision_${decision_counter}_selected_list}")
                     set(decision_${next_decision_counter}_pkg_name "${pkg_name}")
-                    set(decision_${next_decision_counter}_version "${sel_version}")
+                    set(decision_${next_decision_counter}_version "${SEL_VERSION}")
                     set(decision_${next_decision_counter}_tag_wheel "${decision_${decision_counter}_tag_wheel}")
                     set(decision_${next_decision_counter}_range "${pkg_version_range}")
                     set(decision_${next_decision_counter}_git_tag "${pkg_git_tag}")
@@ -778,18 +719,26 @@ function(bpm_solve_dependencies in_packages out_selected_list)
                     set(decision_counter "${next_decision_counter}")
 
                     # print current decision
-                    set(short_to_do "")
-                    foreach(todo IN LISTS decision_${decision_counter}_todo_list)
-                        bpm_parse_registry_range_entry("${todo}" pkg_name pkg_version_range pkg_git_tag pkg_git_repo)
-                        list(APPEND short_to_do "${pkg_name}")
-                    endforeach()
-                    message(STATUS "decision: ${decision_counter}, todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${decision_${decision_counter}_range}, wheel: ${decision_${decision_counter}_tag_wheel}")
+                    if(BPM_VERBOSE)
+                        set(short_to_do "")
+                        foreach(todo IN LISTS decision_${decision_counter}_todo_list)
+                            set(options)
+                            set(oneValueArgs NAME)
+                            set(multiValueArgs)
+                            separate_arguments(todo_tokens UNIX_COMMAND "${todo}")
+                            cmake_parse_arguments(TODO "${options}" "${oneValueArgs}" "${multiValueArgs}" ${todo_tokens})
+                            list(APPEND short_to_do "${TODO_NAME}")
+                        endforeach()
+                        message(STATUS "decision: ${decision_counter} | todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${decision_${decision_counter}_range}, wheel: ${decision_${decision_counter}_tag_wheel}")
+                    endif()
 
                     set(solved_one TRUE)
                     break() # to leave for loop and then continue in the while loop
                 else()
                     # found a version conflict
-                    message(STATUS "version: conflict of ${pkg_name}: range ${pkg_version_range}, existing version: ${sel_version}")
+                    if(BPM_VERBOSE)
+                        message(STATUS "version: conflict of ${pkg_name}: range ${pkg_version_range}, existing version: ${SEL_VERSION}")
+                    endif()
                     set(version_conflict TRUE)
                     break() # to leave for loop and then continue in the while loop
                 endif()
@@ -816,8 +765,11 @@ function(bpm_solve_dependencies in_packages out_selected_list)
             if(NOT mirror_${pkg_name}_up_to_date)
                 if(NOT EXISTS "${mirror_dir}/HEAD")
                     message(STATUS "BPM [${pkg_name}]: Cloning git repository: ${pkg_git_repo} into: ${mirror_dir}")
-                    
-                    execute_process(COMMAND git clone --mirror "${pkg_git_repo}" "${mirror_dir}" --recursive -c advice.detachedHead=false RESULT_VARIABLE res)
+                    if(BPM_VERBOSE)
+                        execute_process(COMMAND git clone --mirror "${pkg_git_repo}" "${mirror_dir}" --recursive -c advice.detachedHead=false RESULT_VARIABLE res)
+                    else()
+                        execute_process(COMMAND git clone --mirror "${pkg_git_repo}" "${mirror_dir}" --recursive -c advice.detachedHead=false RESULT_VARIABLE res ERROR_QUIET OUTPUT_QUIET)
+                    endif()
 
                     if(res EQUAL 0)
                         message(STATUS "BPM [${pkg_name}]: Cloning git repository - success")
@@ -834,9 +786,9 @@ function(bpm_solve_dependencies in_packages out_selected_list)
                 set(tags "${BPM_REGISTRY_${pkg_name}_GIT_TAGS}")
             else()
                 # if tags have not been acquired - load them
-                execute_process(COMMAND git "--git-dir=${mirror_dir}" tag --sort=-committerdate RESULT_VARIABLE res OUTPUT_VARIABLE tags)
+                execute_process(COMMAND git "--git-dir=${mirror_dir}" tag --sort=-committerdate RESULT_VARIABLE res OUTPUT_VARIABLE tags ERROR_QUIET)
                 if(NOT res EQUAL 0)
-                    message(FATAL_ERROR "BPM [${pkg_name}]: Failed to get tags from mirror: ${mirror_dir}. `git --git-dir=${mirror_dir} tag` returned: ${res}")
+                    message(FATAL_ERROR "BPM [${pkg_name}]: Failed to get tags from mirror: ${mirror_dir}." )
                 endif()
 
                 # turn the console output into a CMake list
@@ -853,13 +805,18 @@ function(bpm_solve_dependencies in_packages out_selected_list)
 
                 # fetch if upper version bound is inf or tag is not contained
                 if(NOT contains)
-                    message(STATUS "BPM [${pkg_name}]: mirror might be out of date - check for updates")
-                    execute_process(COMMAND git "--git-dir=${mirror_dir}" fetch --tags --prune RESULT_VARIABLE res)
+                    message(STATUS "BPM [${pkg_name}]: mirror might be out-of-date - fetch for updates")
+                    
+                    if(BPM_VERBOSE)
+                        execute_process(COMMAND git "--git-dir=${mirror_dir}" fetch --tags --prune RESULT_VARIABLE res)
+                    else()
+                        execute_process(COMMAND git "--git-dir=${mirror_dir}" fetch --tags --prune RESULT_VARIABLE res OUTPUT_QUIET ERROR_QUIET)
+                    endif()
 
                     if(res EQUAL 0)
-                        message(STATUS "BPM [${pkg_name}]: mirror might be out of date - check for updates - success")
+                        message(STATUS "BPM [${pkg_name}]: mirror might be out-of-date - fetch for updates - success")
                     else() 
-                        message(WARNING "BPM [${pkg_name}]: mirror might be out of date - check for updates - failed")
+                        message(WARNING "BPM [${pkg_name}]: mirror might be out-of-date - fetch for updates - failed")
                     endif()
                     set(mirror_${pkg_name}_up_to_date TRUE)
                 endif()
@@ -881,13 +838,12 @@ function(bpm_solve_dependencies in_packages out_selected_list)
             string(REPLACE "\n" ";" metadata_${pkg_name}_${top_version} "${metadata_tmp}") # replace new lines with ; for list seperators
         endif()
 
-        if(res EQUAL 0)            
-            foreach(line IN LISTS metadata_${pkg_name}_${top_version})
-                if(line)
-                    list(APPEND todo_list ${line})
-                endif()
-            endforeach()
-        endif()
+                 
+        foreach(line IN LISTS metadata_${pkg_name}_${top_version})
+            if(line)
+                list(APPEND todo_list ${line})
+            endif()
+        endforeach()
         
 
         # no registry found --> no more entries added to the todo list --> make decision and continue
@@ -909,14 +865,18 @@ function(bpm_solve_dependencies in_packages out_selected_list)
         set(decision_counter "${next_decision_counter}")
 
         # print current decision
-        message(STATUS "new decision")
-        set(short_to_do "")
-        foreach(todo IN LISTS decision_${decision_counter}_todo_list)
-            bpm_parse_registry_range_entry("${todo}" pkg_name pkg_version_range pkg_git_tag pkg_git_repo)
-            list(APPEND short_to_do "${pkg_name}")
-        endforeach()
-        message(STATUS "decision: ${decision_counter}, todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${decision_${decision_counter}_range}, wheel: ${decision_${decision_counter}_tag_wheel}")
-
+        if(BPM_VERBOSE)
+            set(short_to_do "")
+            foreach(todo IN LISTS decision_${decision_counter}_todo_list)
+                set(options)
+                set(oneValueArgs NAME)
+                set(multiValueArgs)
+                separate_arguments(todo_tokens UNIX_COMMAND "${todo}")
+                cmake_parse_arguments(TODO "${options}" "${oneValueArgs}" "${multiValueArgs}" ${todo_tokens})
+                list(APPEND short_to_do "${TODO_NAME}")
+            endforeach()
+            message(STATUS "new decision: ${decision_counter} | todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${decision_${decision_counter}_range}, wheel: ${decision_${decision_counter}_tag_wheel}")
+        endif()
         
     endwhile()
 
@@ -924,16 +884,36 @@ function(bpm_solve_dependencies in_packages out_selected_list)
 
 endfunction()
 
+function(bpm_create_manifest OUT_MANIFEST OUT_HASH)
+    set(_manifest "")
+    foreach(var IN LISTS ARGN)
+        if(DEFINED ${var})
+            set(_value "${${var}}")
+        else()
+            set(_value "<UNDEFINED>")
+        endif()
+        string(APPEND _manifest "${var}=${_value}\n")
+    endforeach()
+    set(${OUT_MANIFEST} "${_manifest}" PARENT_SCOPE)
+endfunction()
+
 #
 function(BPMMakeAvailable)
 
+    set(options VERBOSE)
+    set(oneValueArgs)
+    set(multiValueArgs)
+    cmake_parse_arguments(BPM "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+
     bpm_get_cache_dir(BPM_CACHE_DIR)
 
-    # write the local registry
+    # -------------------------------
+    # Write local repository to file
+    # -------------------------------
+
     get_property(BPM_REGISTRY_ GLOBAL PROPERTY BPM_REGISTRY)
     foreach(PKG_NAME IN LISTS BPM_REGISTRY_)
         # write local registry
-        get_property(REQUIRED_FROM GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_REQUIRED_FROM")
         get_property(VERSION_RANGE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_VERSION_RANGE")
         get_property(GIT_TAG GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_TAG")
         get_property(GIT_REPOSITORY GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_REPOSITORY")
@@ -941,19 +921,106 @@ function(BPMMakeAvailable)
         string(REPLACE ";" "-" SAFE_VERSION_RANGE "${VERSION_RANGE}")
 
         string(APPEND registry_content
-            "REQUIRED_FROM ${REQUIRED_FROM} NAME ${PKG_NAME} VERSION_RANGE ${SAFE_VERSION_RANGE} "
-            "GIT_TAG ${GIT_TAG} GIT_REPOSITORY ${GIT_REPOSITORY} INSTALL ${pkg_install}\n"
+            "NAME ${PKG_NAME} VERSION_RANGE ${SAFE_VERSION_RANGE} "
+            "GIT_TAG ${GIT_TAG} GIT_REPOSITORY ${GIT_REPOSITORY} INSTALL ${pkg_install};"
         )
         
+        string(APPEND registry_file_content
+            "NAME ${PKG_NAME} VERSION_RANGE ${SAFE_VERSION_RANGE} "
+            "GIT_TAG ${GIT_TAG} GIT_REPOSITORY ${GIT_REPOSITORY}\n"
+        )
     endforeach()
-    file(APPEND "${CMAKE_CURRENT_SOURCE_DIR}/.bpm-registry" "${registry_content}\n")
-    string(REPLACE "\r\n" "\n" registry_content "${registry_content}")
-    string(REPLACE "\n" ";" registry_content "${registry_content}")
+    # remove 
+    file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/.bpm-registry" "${registry_file_content}\n")
 
+    # -------------------------------
+    # Solve Dependency Graph
+    # -------------------------------
+
+    message(STATUS "")
     bpm_solve_dependencies("${registry_content}" solution)
 
-    message(STATUS "solution: ${solution}")
+    message(STATUS "")
+    message(STATUS "================= Dependecy Graph Solution =================")
 
+    foreach(pkg IN LISTS solution)
+        set(options)
+        set(oneValueArgs NAME VERSION GIT_REPO)
+        set(multiValueArgs)
+        separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
+        cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
+
+        message(STATUS "BPM: Resolved: ${PKG_NAME}@${PKG_VERSION} : ${PKG_GIT_REPO}")
+        
+    endforeach()
+
+    message(STATUS "============================ END ===========================")
+    message(STATUS "")
+
+    # ------------------------------------------------------------------------------
+    # Add package with `add_subdirectory` or install and add with `find_package`
+    # ------------------------------------------------------------------------------
+
+    foreach(pkg IN LISTS solution)
+        set(options)
+        set(oneValueArgs NAME VERSION GIT_REPO)
+        set(multiValueArgs)
+        separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
+        cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
+
+        set(lib_mirror_dir "${BPM_CACHE_DIR}/${PKG_NAME}/mirror")
+
+        # repository already cloned with `bpm_solve_dependencies`
+
+        # -------------------------------
+        # create manifest
+        # -------------------------------
+
+        file(SHA256 "${CMAKE_C_COMPILER}" C_COMPILER_HASH)
+        file(SHA256 "${CMAKE_CXX_COMPILER}" CXX_COMPILER_HASH)
+
+        get_property(PKG_OPTIONS GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS")
+
+        # turn tag into commit hash
+        bpm_create_manifest(manifest
+            CMAKE_C_COMPILER_ID
+            C_COMPILER_HASH
+            CMAKE_C_COMPILER_VERSION
+            CMAKE_CXX_COMPILER_ID
+            CXX_COMPILER_HASH
+            CMAKE_CXX_COMPILER_VERSION
+            CMAKE_SYSTEM_NAME
+            CMAKE_SYSTEM_PROCESSOR
+            CMAKE_VERSION
+            TOOLCHAIN_HASH
+            PKG_NAME
+            PKG_VERSION
+            PKG_GIT_COMMIT
+            PKG_GIT_REPO
+            PKG_OPTIONS
+        ) 
+
+        string(SHA256 manifest_hash "${manifest}")
+        string(SUBSTRING "${manifest_hash}" 0 16 short_hash)
+
+        # -------------------------------
+        # Define hashed directories
+        # -------------------------------
+
+        set(library_build_dir "${BPM_CACHE_DIR}/${PKG_NAME}/build/${SHORT_HASH}")
+        set(library_install_dir "${BPM_CACHE_DIR}/${PKG_NAME}/install/${SHORT_HASH}")
+        set(manifest_dir "${BPM_CACHE_DIR}/${PKG_NAME}/manifest")
+        set(manifest_file_path "${BPM_CACHE_DIR}/${PKG_NAME}/manifest/${SHORT_HASH}.manifest")
+
+        message(FATAL_ERROR "TODO: CONTINUE FROM HERE")
+
+        get_property("BPM_${PKG_NAME}_INSTALL" GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_INSTALL")
+        if(BPM_${PKG_NAME}_INSTALL)
+            message(STATUS "Installing: ${PKG_NAME}@${PKG_VERSION} : ${PKG_GIT_REPO}")
+        elseif(BPM_${PKG_NAME}_ADD_SUBDIR)
+            message(STATUS "Adding Subdirectory: ${PKG_NAME}@${PKG_VERSION} : ${PKG_GIT_REPO}")
+        endif()
+    endforeach()
 
 endfunction()
 
@@ -962,7 +1029,7 @@ endfunction()
 #                   Install
 # -----------------------------------------------------
 
-function(BPMCreateInstallPackage)
+function(BPMCreatePackage)
     include(CMakePackageConfigHelpers)
 
     if(ARGC EQUAL 1)
