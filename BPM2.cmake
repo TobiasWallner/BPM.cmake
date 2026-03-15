@@ -1019,6 +1019,8 @@ endfunction()
 
 function(bpm_configure_library lib_name lib_src_dir lib_build_dir options dependency_solution)
 
+    message(STATUS "BPM [${lib_name}]: Configuring")
+
     set(cmake_build_args "")
     if(options)
         foreach(opt IN LISTS options)
@@ -1050,11 +1052,12 @@ function(bpm_configure_library lib_name lib_src_dir lib_build_dir options depend
         set(dpendencies_arg "-D${dependency_solution}")
     endif()
 
-    if(BPM_VERBOSE)
-        message(STATUS "BPM [${lib_name}]: Configuring")
+    # TODO: Optimisation: skipp instead of re-configuring
+    set(log_level "--log-level=NOTICE")
+    if(NOT BPM_VERBOSE)
+        set(log_level "")
     endif()
 
-    # TODO: Optimisation: skipp instead of re-configuring
     execute_process(
         COMMAND ${CMAKE_COMMAND}
         -S "${lib_src_dir}"
@@ -1076,14 +1079,32 @@ function(bpm_configure_library lib_name lib_src_dir lib_build_dir options depend
 
         RESULT_VARIABLE res
         ${execute_process_quiet}
+
+        ${log_level}
     )
 
     if(res EQUAL 0)
-        if(BPM_VERBOSE)
-            message(STATUS "BPM [${lib_name}]: Configuring - done")
-        endif()
+        message(NOTICE "BPM [${lib_name}]: Configuring - done")
     else() 
-        message(STATUS "BPM [${lib_name}]: Configuring - failed")
+        message(FATAL_ERROR "BPM [${lib_name}]: Configuring - failed")
+    endif()
+
+endfunction()
+
+function(bpm_build_library lib_name library_build_dir)
+
+    message(STATUS "BPM [${lib_name}]: Building")
+
+    set(parallel 8)
+    if(CMAKE_BUILD_PARALLEL_LEVEL)
+        set(parallel ${CMAKE_BUILD_PARALLEL_LEVEL})
+    endif()
+
+    execute_process(COMMAND ${CMAKE_COMMAND} --build "${library_build_dir}" --config Release --parallel ${parallel} RESULT_VARIABLE res)
+    if(res EQUAL 0)
+        message(NOTICE "BPM [${lib_name}]: Building - done")
+    else() 
+        message(FATAL_ERROR "BPM [${lib_name}]: Building - failed")
     endif()
 
 endfunction()
@@ -1236,6 +1257,9 @@ function(BPMMakeAvailable)
 
                 # configure the project
                 bpm_configure_library("${PKG_NAME}" "${lib_src_dir}" "${lib_build_dir}" "${PKG_OPTIONS}" "${solution}")
+
+                # build the library
+                bpm_build_library("${PKG_NAME}" "${lib_build_dir}")
 
             endif()
 
