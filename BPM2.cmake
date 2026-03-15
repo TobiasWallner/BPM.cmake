@@ -898,16 +898,16 @@ function(bpm_create_manifest OUT_MANIFEST OUT_HASH)
     set(${OUT_MANIFEST} "${_manifest}" PARENT_SCOPE)
 endfunction()
 
-function(bpm_try_find_packages lib_name packages library_install_dir OUT_FOUND_ALL)
+function(bpm_try_find_packages lib_name packages lib_install_dir OUT_FOUND_ALL)
     set(all_packages_found TRUE)
-    file(RELATIVE_PATH rel_install_dir "${CMAKE_SOURCE_DIR}" "${library_install_dir}")
+    file(RELATIVE_PATH rel_install_dir "${CMAKE_SOURCE_DIR}" "${lib_install_dir}")
     foreach(package IN LISTS packages)
         # unset for deterministic find without sideeffects
         unset(${package}_DIR CACHE)
         if(PKG_VERBOSE)
-            find_package(${package} CONFIG NO_DEFAULT_PATH PATHS "${library_install_dir}")
+            find_package(${package} CONFIG NO_DEFAULT_PATH PATHS "${lib_install_dir}")
         else()
-            find_package(${package} QUIET CONFIG NO_DEFAULT_PATH PATHS "${library_install_dir}")
+            find_package(${package} QUIET CONFIG NO_DEFAULT_PATH PATHS "${lib_install_dir}")
         endif()
         unset(${package}_DIR)
         if(${package}_FOUND)
@@ -972,10 +972,62 @@ function(bpm_find_test_example_options_r search_folder result_var)
     set(${result_var} "${all_flags}" PARENT_SCOPE)
 endfunction()
 
-function(bpm_configure_library lib_name library_src_dir library_build_dir cmake_build_args)
+function(bpm_clone_from_mirror lib_name library_mirror_dir lib_src_dir git_tag)
+
+    if(BPM_VERBOSE)
+        message(STATUS "BPM [${lib_name}]: Cloning mirror '${library_mirror_dir}' into source dir '${lib_src_dir}'")
+    endif()
+    if(NOT EXISTS ${lib_src_dir}/.git)
+        if(BPM_VERBOSE)
+            execute_process(COMMAND git clone --reference "${library_mirror_dir}" --branch "${git_tag}" "${library_mirror_dir}" "${lib_src_dir}" -c advice.detachedHead=false RESULT_VARIABLE res)
+        else()
+            execute_process(COMMAND git clone --reference "${library_mirror_dir}" --branch "${git_tag}" "${library_mirror_dir}" "${lib_src_dir}" -c advice.detachedHead=false RESULT_VARIABLE res OUTPUT_QUIET)
+        endif()
+
+        if(res EQUAL 0)
+            if(BPM_VERBOSE)
+                message(STATUS "BPM [${lib_name}]: Cloning mirror into source dir - success")
+            endif()
+        else()
+            message(FATAL_ERROR "BPM [${lib_name}]: Cloning mirror '${library_mirror_dir}' into source dir '${lib_src_dir}' - failed")
+        endif()
+    else()
+        if(BPM_VERBOSE)
+            message(STATUS "BPM [${lib_name}]: Cloning mirror into source dir - skipped")
+        endif()
+    endif()
+    
+    if(BPM_VERBOSE)
+        message(STATUS "BPM [${lib_name}]: Updating git-submodules")
+    endif()
+
+    if(BPM_VERBOSE)
+        execute_process(COMMAND git -C "${lib_src_dir}" submodule update --init --recursive RESULT_VARIABLE res)
+    else()
+        execute_process(COMMAND git -C "${lib_src_dir}" submodule update --init --recursive RESULT_VARIABLE res OUTPUT_QUIET)
+    endif()
+
+    if(res EQUAL 0)
+        if(BPM_VERBOSE)
+            message(STATUS "Updating git-submodules - success")
+        endif()
+    else()
+        message(FATAL_ERROR "Updating git-submodules - failed")
+    endif()
+
+endfunction()
+
+function(bpm_configure_library lib_name lib_src_dir lib_build_dir options dependency_solution)
+
+    set(cmake_build_args "")
+    if(options)
+        foreach(opt IN LISTS options)
+            list(APPEND cmake_build_args "-D${opt}")
+        endforeach()
+    endif()
 
     # parse the libraries cmake lists for flags that enable tests and disable them
-    bpm_find_test_example_options_r("${library_src_dir}" test_example_options)
+    bpm_find_test_example_options_r("${lib_src_dir}" test_example_options)
     set(cmake_disable_test_example_flags "")
 
     foreach(flag ${test_example_options})
@@ -983,7 +1035,6 @@ function(bpm_configure_library lib_name library_src_dir library_build_dir cmake_
     endforeach()
 
     set(toolchain_args "")
-    
     if(CMAKE_TOOLCHAIN_FILE)
         list(APPEND toolchain_args "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
     else()
@@ -993,32 +1044,44 @@ function(bpm_configure_library lib_name library_src_dir library_build_dir cmake_
         )
     endif()
 
-    message(FATAL_ERROR "TODO: Check if this library uses BPM (has a .bpm-registry). If yes: pass the version solutions as a variable")
+    # Check if this library uses BPM (has a .bpm-registry). If yes: pass the version solutions as a variable
+    set(dpendencies_arg "")
+    if(EXISTS "${lib_src_dir}/.bpm-registry")
+        set(dpendencies_arg "-D${dependency_solution}")
+    endif()
 
+    if(BPM_VERBOSE)
+        message(STATUS "BPM [${lib_name}]: Configuring")
+    endif()
+
+    # TODO: Optimisation: skipp instead of re-configuring
     execute_process(
         COMMAND ${CMAKE_COMMAND}
-        -S "${library_src_dir}"
-        -B "${library_build_dir}"
+        -S "${lib_src_dir}"
+        -B "${lib_build_dir}"
         -G "${CMAKE_GENERATOR}"
         
-        -DCMAKE_BUILD_TYPE=${BPM_BUILD_TYPE}
-        -DCMAKE_INSTALL_PREFIX=${library_install_dir}
+        "-DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+        "-DCMAKE_GENERATOR=${CMAKE_GENERATOR}"
+
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_INSTALL_PREFIX=${lib_install_dir}
         -DCMAKE_POSITION_INDEPENDENT_CODE=${CMAKE_POSITION_INDEPENDENT_CODE}
         -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
         
         ${cmake_build_args}
         ${toolchain_args}
         ${cmake_disable_test_example_flags}
-
-        "-DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
-        "-DCMAKE_GENERATOR=${CMAKE_GENERATOR}"
+        ${dpendencies_arg}
 
         RESULT_VARIABLE res
         ${execute_process_quiet}
     )
 
     if(res EQUAL 0)
-        message(STATUS "BPM [${lib_name}]: Configuring - done")
+        if(BPM_VERBOSE)
+            message(STATUS "BPM [${lib_name}]: Configuring - done")
+        endif()
     else() 
         message(STATUS "BPM [${lib_name}]: Configuring - failed")
     endif()
@@ -1141,9 +1204,9 @@ function(BPMMakeAvailable)
         # Define hashed directories
         # -------------------------------
 
-        set(library_src_dir "${BPM_CACHE_DIR}/${PKG_NAME}/src/${PKG_GIT_COMMIT_HASH}")
-        set(library_build_dir "${BPM_CACHE_DIR}/${PKG_NAME}/build/${SHORT_MANIFEST_HASH}")
-        set(library_install_dir "${BPM_CACHE_DIR}/${PKG_NAME}/install/${SHORT_MANIFEST_HASH}")
+        set(lib_src_dir "${BPM_CACHE_DIR}/${PKG_NAME}/src/${PKG_GIT_COMMIT_HASH}")
+        set(lib_build_dir "${BPM_CACHE_DIR}/${PKG_NAME}/build/${SHORT_MANIFEST_HASH}")
+        set(lib_install_dir "${BPM_CACHE_DIR}/${PKG_NAME}/install/${SHORT_MANIFEST_HASH}")
         set(manifest_dir "${BPM_CACHE_DIR}/${PKG_NAME}/manifest")
         set(manifest_file_path "${BPM_CACHE_DIR}/${PKG_NAME}/manifest/${SHORT_MANIFEST_HASH}.manifest")
 
@@ -1164,11 +1227,15 @@ function(BPMMakeAvailable)
 
             get_property(REGISTERED_PACKATES GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES")
 
-            bpm_try_find_packages("${PKG_NAME}" "${REGISTERED_PACKATES}" "${library_install_dir}" all_packages_found)
+            bpm_try_find_packages("${PKG_NAME}" "${REGISTERED_PACKATES}" "${lib_install_dir}" all_packages_found)
             if(NOT all_packages_found)
                 message(STATUS "BPM [${PKG_NAME}]: Find packages - failed: attempt install")
 
-                bpm_configure_library("${BPM_NAME}" "${library_src_dir}" "${library_build_dir}" "${BPM_ARGS}" "${execute_process_quiet}")
+                # clone mirror into source dir
+                bpm_clone_from_mirror("${PKG_NAME}" "${lib_mirror_dir}" "${lib_src_dir}" "${PKG_VERSION}")
+
+                # configure the project
+                bpm_configure_library("${PKG_NAME}" "${lib_src_dir}" "${lib_build_dir}" "${PKG_OPTIONS}" "${solution}")
 
             endif()
 
