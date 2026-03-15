@@ -69,14 +69,14 @@ function(bpm_parse_version_string INPUT out_version_range)
 
         # Disallow ^ and ~ for non-semver
         if(VERSION_QUALIFIER STREQUAL "^" OR VERSION_QUALIFIER STREQUAL "~")
-            message(FATAL_ERROR "BPM [${NAME}]: Invalid constraint '${VERSION_QUALIFIER}' for non-semver reference '${VALUE}'")
+            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${NAME}]: Invalid constraint '${VERSION_QUALIFIER}' for non-semver reference '${VALUE}'")
         endif()
 
         # Only allow empty, '=' or '>='
         if(VERSION_QUALIFIER AND
             NOT VERSION_QUALIFIER STREQUAL "=" AND
             NOT VERSION_QUALIFIER STREQUAL ">=")
-            message(FATAL_ERROR "BPM [${NAME}]: Invalid qualifier '${VERSION_QUALIFIER}' for tag/hash '${VALUE}'")
+            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${NAME}]: Invalid qualifier '${VERSION_QUALIFIER}' for tag/hash '${VALUE}'")
         endif()
 
         set(${out_version} "${VERSION_QUALIFIER}" "${VALUE}" PARENT_SCOPE)
@@ -143,11 +143,11 @@ function(bpm_parse_short_dependency INPUT out_git_repo out_name out_tag)
     string(REGEX REPLACE "\\.git$" "" NAME "${NAME}")
 
     if(NOT NAME)
-        message(FATAL_ERROR "BPM: Could not extract the repository name. Expected: 'paht/name' or `NAME ... GIT_REPOSITORY ... GIT_TAG ...` but got: ${FULL_PATH}")
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}]: Could not extract the repository name. Expected: 'paht/name' or `NAME ... GIT_REPOSITORY ... GIT_TAG ...` but got: ${FULL_PATH}")
     endif()
 
     if(NOT INPUT)
-        message(FATAL_ERROR "BPM [${NAME}]: No version string provided. Expected: 'path/name@version'")
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${NAME}]: No version string provided. Expected: 'path/name@version'")
     endif()
 
     # ------------------------------------------------------------
@@ -174,10 +174,9 @@ function(bpm_parse_arguments INPUT out_name out_repo out_tag out_build_type out_
         bpm_parse_short_dependency(${FIRST_ARG} PKG_GIT_REPOSITORY PKG_NAME PKG_GIT_TAG)
     endif()
         
-        
     # Validate arguments
     if(NOT PKG_NAME)
-        message(FATAL_ERROR "BPM: NAME is required")
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}]: NAME is required")
     endif()
 
     if(BPM_${PKG_NAME}_ADDED)
@@ -190,11 +189,11 @@ function(bpm_parse_arguments INPUT out_name out_repo out_tag out_build_type out_
     endif()
     
     if(NOT PKG_GIT_REPOSITORY)
-        message(FATAL_ERROR "BPM [${PKG_NAME}]: GIT_REPOSITORY is required")
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: GIT_REPOSITORY is required")
     endif()
 
     if(NOT PKG_GIT_TAG)
-        message(FATAL_ERROR "BPM [${PKG_NAME}]: GIT_TAG is required")
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: GIT_TAG is required")
     else()
         bpm_parse_version_string("${PKG_GIT_TAG}" PKG_VERSION)
     endif()
@@ -277,7 +276,6 @@ function(BPMAddInstallPackage)
         PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG_BUILD_TYPE 
         PKG_OPTIONS PKG_PACKAGES PKG_QUIET PKG_VERSION_RANGE)
 
-
     # Create the Registry and delete the old one
     # --------------------------------------------------------------------------------
     get_property(BPM_REGISTRY_ GLOBAL PROPERTY BPM_REGISTRY)
@@ -304,11 +302,11 @@ function(BPMAddInstallPackage)
         list(SORT PKG_OPTIONS)
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS" "${PKG_OPTIONS}")
     else()
-        message(WARNING "BPM [${PKG_NAME}]: Defined twice in the same project")
+        message(WARNING "BPM [${PROJECT_NAME}:${PKG_NAME}]: Defined twice in the same project")
 
         get_property(REGISTERED_GIT_REPOSITORY GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_REPOSITORY")
         if(NOT "${REGISTERED_GIT_REPOSITORY}" STREQUAL "${PKG_GIT_REPOSITORY}")
-            message(FATAL_ERROR "BPM [${PKG_NAME}}: Repository Conflict: new: ${PKG_GIT_REPOSITORY}, previously defined: ${REGISTERED_GIT_REPOSITORY}")
+            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}}: Repository Conflict: new: ${PKG_GIT_REPOSITORY}, previously defined: ${REGISTERED_GIT_REPOSITORY}")
         endif()
 
         get_property(REGISTERED_VERSION_RANGE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_VERSION_RANGE")
@@ -325,7 +323,7 @@ function(BPMAddInstallPackage)
         list(SORT PKG_OPTIONS)
         get_property(REGISTERED_OPTIONS GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS")
         if(NOT "${REGISTERED_OPTIONS}" STREQUAL "${PKG_OPTIONS}")
-            message(FATAL_ERROR "BPM [${PKG_NAME}]: options conflict: new: '${REGISTERED_OPTIONS}', previously defined: '${PKG_OPTIONS}'")
+            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: options conflict: new: '${REGISTERED_OPTIONS}', previously defined: '${PKG_OPTIONS}'")
         endif()
 
         # check if there is a packages conflict
@@ -354,17 +352,14 @@ function(bpm_get_cache_dir RESULT_VAR)
     set(_value "")
 
     if(DEFINED BPM_CACHE AND NOT "${BPM_CACHE}" STREQUAL "")
-        message(STATUS "BPM: resolve BPM_CACHE - from CMAKE_ARG: ${BPM_CACHE}")
-        return()
-    endif()
-
-    if(DEFINED ENV{BPM_CACHE} AND NOT "$ENV{BPM_CACHE}" STREQUAL "")
+        set(_value "${BPM_CACHE}")
+        message(STATUS "BPM [${PROJECT_NAME}]: resolve BPM_CACHE - from CMAKE_ARG: ${BPM_CACHE}")
+    elseif(DEFINED ENV{BPM_CACHE} AND NOT "$ENV{BPM_CACHE}" STREQUAL "")
         set(_value "$ENV{BPM_CACHE}")
-        message(STATUS "BPM: resolve BPM_CACHE - from environment variable: ${_value}")
+        message(STATUS "BPM [${PROJECT_NAME}]: resolve BPM_CACHE - from environment variable: ${_value}")
     else()
-        set(_value "${CMAKE_SOURCE_DIR}/_deps")
-        file(RELATIVE_PATH rel_build_dir "${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}")
-        message(STATUS "BPM: resolve BPM_CACHE - no cache provided: use local: ./${rel_build_dir}/_deps")
+        set(_value "${CMAKE_BINARY_DIR}/_deps")
+        message(STATUS "BPM [${PROJECT_NAME}]: resolve BPM_CACHE - no cache provided: use local: ${_value}")
     endif()
 
     set(${RESULT_VAR} "${_value}" PARENT_SCOPE)
@@ -387,7 +382,7 @@ function(bpm_fully_contains_tag_range IN_VERSIONS RANGE OUT)
         set(minor_lower ${CMAKE_MATCH_2})
         set(patch_lower ${CMAKE_MATCH_3})
     else()
-        message(FATAL_ERROR "BPM: Internal error: version string is not correct: ${version_lower}")
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}]: Internal error: version string is not correct: ${version_lower}")
     endif()
 
     math(EXPR patch_lower_plus_one "${patch_lower} + 1")
@@ -579,6 +574,8 @@ endfunction()
 
 function(bpm_solve_dependencies in_packages out_selected_list)
 
+    bpm_get_cache_dir(BPM_CACHE_DIR)
+
     set(decision_counter "0")
     set(decision_${decision_counter}_todo_list "${in_packages}")
     set(decision_${decision_counter}_selected_list "")
@@ -765,7 +762,7 @@ function(bpm_solve_dependencies in_packages out_selected_list)
             # build the version wheel for this pakcage
             if(NOT mirror_${pkg_name}_up_to_date)
                 if(NOT EXISTS "${mirror_dir}/HEAD")
-                    message(STATUS "BPM [${pkg_name}]: Cloning git repository: ${pkg_git_repo} into: ${mirror_dir}")
+                    message(STATUS "BPM [${PROJECT_NAME}:${pkg_name}]: Cloning git repository: ${pkg_git_repo} into: ${mirror_dir}")
                     if(BPM_VERBOSE)
                         execute_process(COMMAND git clone --mirror "${pkg_git_repo}" "${mirror_dir}" --recursive -c advice.detachedHead=false RESULT_VARIABLE res)
                     else()
@@ -773,10 +770,10 @@ function(bpm_solve_dependencies in_packages out_selected_list)
                     endif()
 
                     if(res EQUAL 0)
-                        message(STATUS "BPM [${pkg_name}]: Cloning git repository - success")
+                        message(STATUS "BPM [${PROJECT_NAME}:${pkg_name}]: Cloning git repository - success")
                         set(mirror_${pkg_name}_up_to_date TRUE)
                     else() 
-                        message(FATAL_ERROR "BPM [${pkg_name}]: Cloning git repository - failed")
+                        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${pkg_name}]: Cloning git repository - failed")
                     endif()
                 endif()
             endif()
@@ -789,7 +786,7 @@ function(bpm_solve_dependencies in_packages out_selected_list)
                 # if tags have not been acquired - load them
                 execute_process(COMMAND git "--git-dir=${mirror_dir}" tag --sort=-committerdate RESULT_VARIABLE res OUTPUT_VARIABLE tags ERROR_QUIET)
                 if(NOT res EQUAL 0)
-                    message(FATAL_ERROR "BPM [${pkg_name}]: Failed to get tags from mirror: ${mirror_dir}." )
+                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${pkg_name}]: Failed to get tags from mirror: ${mirror_dir}." )
                 endif()
 
                 # turn the console output into a CMake list
@@ -806,7 +803,7 @@ function(bpm_solve_dependencies in_packages out_selected_list)
 
                 # fetch if upper version bound is inf or tag is not contained
                 if(NOT contains)
-                    message(STATUS "BPM [${pkg_name}]: mirror might be out-of-date - fetch for updates")
+                    message(STATUS "BPM [${PROJECT_NAME}:${pkg_name}]: mirror might be out-of-date - fetch for updates")
                     
                     if(BPM_VERBOSE)
                         execute_process(COMMAND git "--git-dir=${mirror_dir}" fetch --tags --prune RESULT_VARIABLE res)
@@ -815,9 +812,9 @@ function(bpm_solve_dependencies in_packages out_selected_list)
                     endif()
 
                     if(res EQUAL 0)
-                        message(STATUS "BPM [${pkg_name}]: mirror might be out-of-date - fetch for updates - success")
+                        message(STATUS "BPM [${PROJECT_NAME}:${pkg_name}]: mirror might be out-of-date - fetch for updates - success")
                     else() 
-                        message(WARNING "BPM [${pkg_name}]: mirror might be out-of-date - fetch for updates - failed")
+                        message(WARNING "BPM [${PROJECT_NAME}:${pkg_name}]: mirror might be out-of-date - fetch for updates - failed")
                     endif()
                     set(mirror_${pkg_name}_up_to_date TRUE)
                 endif()
@@ -900,7 +897,6 @@ endfunction()
 
 function(bpm_try_find_packages lib_name packages lib_install_dir OUT_FOUND_ALL)
     set(all_packages_found TRUE)
-    file(RELATIVE_PATH rel_install_dir "${CMAKE_SOURCE_DIR}" "${lib_install_dir}")
     foreach(package IN LISTS packages)
         # unset for deterministic find without sideeffects
         unset(${package}_DIR CACHE)
@@ -911,9 +907,9 @@ function(bpm_try_find_packages lib_name packages lib_install_dir OUT_FOUND_ALL)
         endif()
         unset(${package}_DIR)
         if(${package}_FOUND)
-            message(STATUS "BPM [${lib_name}]: Find package : ${package} - found: in ./${rel_install_dir}")
+            message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Find package : ${package} - found in: ${lib_install_dir}")
         else()
-            message(STATUS "BPM [${lib_name}]: WARNING: Find package : ${package} - missing")
+            message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: WARNING: Find package : ${package} - missing")
             set(all_packages_found FALSE)
         endif()
     endforeach()
@@ -975,7 +971,7 @@ endfunction()
 function(bpm_clone_from_mirror lib_name library_mirror_dir lib_src_dir git_tag)
 
     if(BPM_VERBOSE)
-        message(STATUS "BPM [${lib_name}]: Cloning mirror '${library_mirror_dir}' into source dir '${lib_src_dir}'")
+        message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Cloning mirror '${library_mirror_dir}' into source dir '${lib_src_dir}'")
     endif()
     if(NOT EXISTS ${lib_src_dir}/.git)
         if(BPM_VERBOSE)
@@ -986,19 +982,19 @@ function(bpm_clone_from_mirror lib_name library_mirror_dir lib_src_dir git_tag)
 
         if(res EQUAL 0)
             if(BPM_VERBOSE)
-                message(STATUS "BPM [${lib_name}]: Cloning mirror into source dir - success")
+                message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Cloning mirror into source dir - success")
             endif()
         else()
-            message(FATAL_ERROR "BPM [${lib_name}]: Cloning mirror '${library_mirror_dir}' into source dir '${lib_src_dir}' - failed")
+            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${lib_name}]: Cloning mirror '${library_mirror_dir}' into source dir '${lib_src_dir}' - failed")
         endif()
     else()
         if(BPM_VERBOSE)
-            message(STATUS "BPM [${lib_name}]: Cloning mirror into source dir - skipped")
+            message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Cloning mirror into source dir - skipped")
         endif()
     endif()
     
     if(BPM_VERBOSE)
-        message(STATUS "BPM [${lib_name}]: Updating git-submodules")
+        message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Updating git-submodules")
     endif()
 
     if(BPM_VERBOSE)
@@ -1019,7 +1015,9 @@ endfunction()
 
 function(bpm_configure_library lib_name lib_src_dir lib_build_dir options dependency_solution)
 
-    message(STATUS "BPM [${lib_name}]: Configuring")
+    bpm_get_cache_dir(BPM_CACHE_DIR)
+
+    message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Configuring")
 
     set(cmake_build_args "")
     if(options)
@@ -1049,14 +1047,10 @@ function(bpm_configure_library lib_name lib_src_dir lib_build_dir options depend
     # Check if this library uses BPM (has a .bpm-registry). If yes: pass the version solutions as a variable
     set(dpendencies_arg "")
     if(EXISTS "${lib_src_dir}/.bpm-registry")
-        set(dpendencies_arg "-D${dependency_solution}")
+        set(dpendencies_arg "-DBPM_DEPENDENCY_SOLUTION=${CMAKE_BINARY_DIR}/bpm-dependency-solution.txt")
     endif()
 
     # TODO: Optimisation: skipp instead of re-configuring
-    set(log_level "--log-level=NOTICE")
-    if(NOT BPM_VERBOSE)
-        set(log_level "")
-    endif()
 
     execute_process(
         COMMAND ${CMAKE_COMMAND}
@@ -1068,9 +1062,11 @@ function(bpm_configure_library lib_name lib_src_dir lib_build_dir options depend
         "-DCMAKE_GENERATOR=${CMAKE_GENERATOR}"
 
         -DCMAKE_BUILD_TYPE=Release
-        -DCMAKE_INSTALL_PREFIX=${lib_install_dir}
-        -DCMAKE_POSITION_INDEPENDENT_CODE=${CMAKE_POSITION_INDEPENDENT_CODE}
-        -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
+
+        "-DBPM_CACHE=${BPM_CACHE_DIR}"
+        "-DCMAKE_INSTALL_PREFIX=${lib_install_dir}"
+        "-DCMAKE_POSITION_INDEPENDENT_CODE=${CMAKE_POSITION_INDEPENDENT_CODE}"
+        "-DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}"
         
         ${cmake_build_args}
         ${toolchain_args}
@@ -1078,22 +1074,19 @@ function(bpm_configure_library lib_name lib_src_dir lib_build_dir options depend
         ${dpendencies_arg}
 
         RESULT_VARIABLE res
-        ${execute_process_quiet}
-
-        ${log_level}
     )
 
     if(res EQUAL 0)
-        message(NOTICE "BPM [${lib_name}]: Configuring - done")
+        message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Configuring - done")
     else() 
-        message(FATAL_ERROR "BPM [${lib_name}]: Configuring - failed")
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${lib_name}]: Configuring - failed")
     endif()
 
 endfunction()
 
 function(bpm_build_library lib_name library_build_dir)
 
-    message(STATUS "BPM [${lib_name}]: Building")
+    message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Building")
 
     set(parallel 8)
     if(CMAKE_BUILD_PARALLEL_LEVEL)
@@ -1101,12 +1094,47 @@ function(bpm_build_library lib_name library_build_dir)
     endif()
 
     execute_process(COMMAND ${CMAKE_COMMAND} --build "${library_build_dir}" --config Release --parallel ${parallel} RESULT_VARIABLE res)
+
     if(res EQUAL 0)
-        message(NOTICE "BPM [${lib_name}]: Building - done")
+        message(NOTICE "BPM [${PROJECT_NAME}:${lib_name}]: Building - done")
     else() 
-        message(FATAL_ERROR "BPM [${lib_name}]: Building - failed")
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${lib_name}]: Building - failed")
     endif()
 
+endfunction()
+
+function(bpm_install_library lib_name lib_build_dir lib_install_dir)
+    message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Installing")
+    if(BPM_VERBOSE)
+        execute_process(COMMAND ${CMAKE_COMMAND} --install ${lib_build_dir} --prefix ${lib_install_dir} --config Release RESULT_VARIABLE res)
+    else()
+        execute_process(COMMAND ${CMAKE_COMMAND} --install ${lib_build_dir} --prefix ${lib_install_dir} --config Release RESULT_VARIABLE res OUTPUT_QUIET)
+    endif()
+    if(res EQUAL 0)
+        message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Installing - done")
+    else() 
+        # clean install on error
+        file(REMOVE_RECURSE "${library_install_dir}")
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${lib_name}]: Installing - failed")
+    endif()
+
+endfunction()
+
+function(bpm_show_installed_packages PKG_NAME lib_install_dir)
+    file(GLOB_RECURSE config_files "${lib_install_dir}/*Config.cmake" "${lib_install_dir}/*config.cmake")
+    if(config_files)
+        message("")
+        message(STATUS "==================== BPM [${PROJECT_NAME}:${PKG_NAME}]: Installed ===================")
+        foreach(config_file IN LISTS config_files)
+            get_filename_component(config_dir "${config_file}" DIRECTORY)
+            get_filename_component(package_name "${config_dir}" NAME)
+            message(STATUS " - ${package_name}")
+        endforeach()
+        message(STATUS "=============================== END =================================")
+        message("")
+    else()
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Installed, but no CMake package config files found.")
+    endif()
 endfunction()
 
 #
@@ -1149,25 +1177,29 @@ function(BPMMakeAvailable)
     # Solve Dependency Graph
     # -------------------------------
 
-    message(STATUS "")
-    bpm_solve_dependencies("${registry_content}" solution)
+    if(NOT DEFINED BPM_DEPENDENCY_SOLUTION)
+        bpm_solve_dependencies("${registry_content}" solution)
+        file(WRITE "${CMAKE_BINARY_DIR}/bpm-dependency-solution.txt" "${solution}")
 
-    message(STATUS "")
-    message(STATUS "================= Dependecy Graph Solution =================")
+        message(STATUS "")
+        message(STATUS "================= Dependecy Graph Solution =================")
 
-    foreach(pkg IN LISTS solution)
-        set(options)
-        set(oneValueArgs NAME VERSION GIT_REPO)
-        set(multiValueArgs)
-        separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
-        cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
+        foreach(pkg IN LISTS solution)
+            set(options)
+            set(oneValueArgs NAME VERSION GIT_REPO)
+            set(multiValueArgs)
+            separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
+            cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
 
-        message(STATUS "BPM: Resolved: ${PKG_NAME}@${PKG_VERSION} : ${PKG_GIT_REPO}")
-        
-    endforeach()
+            message(STATUS "BPM [${PROJECT_NAME}]: Resolved: ${PKG_NAME}@${PKG_VERSION} : ${PKG_GIT_REPO}")
+            
+        endforeach()
 
-    message(STATUS "============================ END ===========================")
-    message(STATUS "")
+        message(STATUS "============================ END ===========================")
+        message(STATUS "")
+    else()
+        file(READ "${BPM_DEPENDENCY_SOLUTION}" solution)
+    endif()
 
     # ------------------------------------------------------------------------------
     # Add package with `add_subdirectory` or install and add with `find_package`
@@ -1195,7 +1227,7 @@ function(BPMMakeAvailable)
 
         execute_process(COMMAND git "--git-dir=${lib_mirror_dir}" rev-parse "${PKG_VERSION}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE PKG_GIT_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE)
         if(NOT res EQUAL 0)
-            message(FATAL_ERROR "BPM [${PKG_NAME}]: Could not convert '${PKG_VERSION}' to commit-hash in mirror '${lib_mirror_dir}'")
+            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Could not convert '${PKG_VERSION}' to commit-hash in mirror '${lib_mirror_dir}'")
         endif()
 
         # turn tag into commit hash
@@ -1240,17 +1272,13 @@ function(BPMMakeAvailable)
             file(WRITE "${manifest_file_path}" "${manifest}")
         endif()
 
-        
-
         get_property("BPM_${PKG_NAME}_INSTALL" GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_INSTALL")
         if(BPM_${PKG_NAME}_INSTALL)
-            message(STATUS "Installing: ${PKG_NAME}@${PKG_VERSION} : ${PKG_GIT_REPO}")
-
             get_property(REGISTERED_PACKATES GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES")
 
             bpm_try_find_packages("${PKG_NAME}" "${REGISTERED_PACKATES}" "${lib_install_dir}" all_packages_found)
             if(NOT all_packages_found)
-                message(STATUS "BPM [${PKG_NAME}]: Find packages - failed: attempt install")
+                message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Find packages - failed: attempt install")
 
                 # clone mirror into source dir
                 bpm_clone_from_mirror("${PKG_NAME}" "${lib_mirror_dir}" "${lib_src_dir}" "${PKG_VERSION}")
@@ -1261,11 +1289,19 @@ function(BPMMakeAvailable)
                 # build the library
                 bpm_build_library("${PKG_NAME}" "${lib_build_dir}")
 
+                # install the library
+                bpm_install_library("${PKG_NAME}" "${lib_build_dir}" "${lib_install_dir}")
+
+                # print which packages have been installed
+                bpm_show_installed_packages("${PKG_NAME}" "${lib_install_dir}")
+
+                # try to make the packagse available
+                bpm_try_find_packages("${PKG_NAME}" "${REGISTERED_PACKATES}" "${lib_install_dir}" all_packages_found)
+                if(NOT all_packages_found)
+                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${BPM_NAME}]: Find package - failed after (re-)install")
+                endif()
             endif()
 
-
-
-            message(FATAL_ERROR "TODO: CONTINUE FROM HERE")
         elseif(BPM_${PKG_NAME}_ADD_SUBDIR)
             message(STATUS "Adding Subdirectory: ${PKG_NAME}@${PKG_VERSION} : ${PKG_GIT_REPO}")
 
