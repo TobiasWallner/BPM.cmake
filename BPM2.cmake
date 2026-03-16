@@ -26,7 +26,7 @@ function(bpm_parse_version_string INPUT out_version_range)
     # --------------------------------------------------------
     # Try semantic version (optional leading 'v')
     # --------------------------------------------------------
-    string(REGEX MATCH "^v?([0-9]+)\\.([0-9]+)\\.([0-9]+)$" _ "${VALUE}")
+    string(REGEX MATCH "([0-9]+)\\.([0-9]+)\\.([0-9]+)" _ "${VALUE}")
 
     if(CMAKE_MATCH_0)
         set(major_lower "${CMAKE_MATCH_1}")
@@ -344,7 +344,7 @@ function(BPMAddSourcePackage)
 
     bpm_parse_arguments("${ARGN}" PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG_BUILD_TYPE PKG_OPTIONS PKG_PACKAGES PKG_QUIET PKG_VERSION_QUALIFIER PKG_V_MAJOR PKG_V_MINOR PKG_V_PATCH)
 
-    # TODO:
+    message(FATAL_ERROR "TODO: Continue developing here")
 
 endfunction()
 
@@ -376,7 +376,7 @@ function(bpm_fully_contains_tag_range IN_VERSIONS RANGE OUT)
 
     # check if we are searching for an exact match
     set(exact_match FALSE)
-    string(REGEX MATCH "([0-9]+)\\.([0-9]+)\\.([0-9]+)$" _ "${version_lower}")
+    string(REGEX MATCH "([0-9]+)\\.([0-9]+)\\.([0-9]+)" _ "${version_lower}")
     if(CMAKE_MATCH_0)
         set(major_lower ${CMAKE_MATCH_1})
         set(minor_lower ${CMAKE_MATCH_2})
@@ -607,16 +607,15 @@ function(bpm_solve_dependencies in_packages out_selected_list)
     
         set(todo_list ${decision_${decision_counter}_todo_list})
         list(POP_FRONT todo_list pkg)
-        bpm_parse_registry_range_entry("${pkg}" pkg_name pkg_version_range pkg_git_tag pkg_git_repo)
 
-        #set(options)
-        #set(oneValueArgs NAME VERSION GIT_TAG GIT_REPO)
-        #set(multiValueArgs)
-        #separate_arguments(selected_tokens UNIX_COMMAND "${selected}")
-        #cmake_parse_arguments(SEL "${options}" "${oneValueArgs}" "${multiValueArgs}" ${selected_tokens})
+        set(options)
+        set(oneValueArgs NAME VERSION_RANGE GIT_TAG GIT_REPOSITORY)
+        set(multiValueArgs)
+        separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
+        cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
+        string(REPLACE "-" ";" PKG_VERSION_RANGE ${PKG_VERSION_RANGE})
 
-        
-        set(mirror_dir "${BPM_CACHE_DIR}/${pkg_name}/mirror")
+        set(mirror_dir "${BPM_CACHE_DIR}/${PKG_NAME}/mirror")
 
         if(version_conflict) # if there was a version conflict
             if(decision_${decision_counter}_tag_wheel)
@@ -683,22 +682,22 @@ function(bpm_solve_dependencies in_packages out_selected_list)
             separate_arguments(selected_tokens UNIX_COMMAND "${selected}")
             cmake_parse_arguments(SEL "${options}" "${oneValueArgs}" "${multiValueArgs}" ${selected_tokens})
 
-            if(("${SEL_NAME}" STREQUAL "${pkg_name}") OR ("${pkg_git_repo}" STREQUAL "${SEL_GIT_REPO}"))
+            if(("${SEL_NAME}" STREQUAL "${PKG_NAME}") OR ("${PKG_GIT_REPOSITORY}" STREQUAL "${SEL_GIT_REPO}"))
                 # repo conflict?
 
-                git_repo_equal("${pkg_git_repo}" "${SEL_GIT_REPO}" are_repos_equal)
+                git_repo_equal("${PKG_GIT_REPOSITORY}" "${SEL_GIT_REPO}" are_repos_equal)
 
                 if(NOT are_repos_equal)
-                    message(FATAL_ERROR  "Repository conflict\n  Package: ${pkg_name}\n  Repository 1: ${pkg_git_repo}\n  Repository 2: ${SEL_GIT_REPO}")
+                    message(FATAL_ERROR  "Repository conflict\n  Package: ${PKG_NAME}\n  Repository 1: ${PKG_GIT_REPOSITORY}\n  Repository 2: ${SEL_GIT_REPO}")
                 endif()
 
                 # package name conflict ? 
-                if(NOT "${pkg_name}" STREQUAL "${SEL_NAME}")
-                    message(FATAL_ERROR  "Package name conflict\n  Repository: ${pkg_git_repo}\n  Package 1: ${pkg_name}\n  Package 2: ${SEL_NAME}")
+                if(NOT "${PKG_NAME}" STREQUAL "${SEL_NAME}")
+                    message(FATAL_ERROR  "Package name conflict\n  Repository: ${PKG_GIT_REPOSITORY}\n  Package 1: ${PKG_NAME}\n  Package 2: ${SEL_NAME}")
                 endif()
 
                 # check if the selected version is in the constraint
-                bpm_is_version_in_range("${SEL_VERSION}" "${pkg_version_range}" is_in_range)
+                bpm_is_version_in_range("${SEL_VERSION}" "${PKG_VERSION_RANGE}" is_in_range)
                 
                 if(is_in_range)
                     # no version conflict - already part of the list
@@ -707,12 +706,12 @@ function(bpm_solve_dependencies in_packages out_selected_list)
 
                     set(decision_${next_decision_counter}_todo_list "${todo_list}")
                     set(decision_${next_decision_counter}_selected_list "${decision_${decision_counter}_selected_list}")
-                    set(decision_${next_decision_counter}_pkg_name "${pkg_name}")
+                    set(decision_${next_decision_counter}_pkg_name "${PKG_NAME}")
                     set(decision_${next_decision_counter}_version "${SEL_VERSION}")
                     set(decision_${next_decision_counter}_tag_wheel "${decision_${decision_counter}_tag_wheel}")
-                    set(decision_${next_decision_counter}_range "${pkg_version_range}")
-                    set(decision_${next_decision_counter}_git_tag "${pkg_git_tag}")
-                    set(decision_${next_decision_counter}_git_repo "${pkg_git_repo}")
+                    set(decision_${next_decision_counter}_range "${PKG_VERSION_RANGE}")
+                    set(decision_${next_decision_counter}_git_tag "${PKG_GIT_TAG}")
+                    set(decision_${next_decision_counter}_git_repo "${PKG_GIT_REPOSITORY}")
 
                     set(decision_counter "${next_decision_counter}")
 
@@ -735,7 +734,7 @@ function(bpm_solve_dependencies in_packages out_selected_list)
                 else()
                     # found a version conflict
                     if(BPM_VERBOSE)
-                        message(STATUS "version: conflict of ${pkg_name}: range ${pkg_version_range}, existing version: ${SEL_VERSION}")
+                        message(STATUS "version: conflict of ${PKG_NAME}: range ${PKG_VERSION_RANGE}, existing version: ${SEL_VERSION}")
                     endif()
                     set(version_conflict TRUE)
                     break() # to leave for loop and then continue in the while loop
@@ -752,41 +751,49 @@ function(bpm_solve_dependencies in_packages out_selected_list)
             continue()
         endif()
 
-        string(REPLACE ";" "_" temp_version_range_str "${pkg_version_range}")
+        string(REPLACE ";" "_" temp_version_range_str "${PKG_VERSION_RANGE}")
         string(REPLACE "-" "_" temp_version_range_str "${temp_version_range_str}")
         string(REPLACE "." "_" temp_version_range_str "${temp_version_range_str}")
-        if(NOT DEFINED cached_tag_wheel_${pkg_name}_${temp_version_range_str})
+        if(NOT DEFINED cached_tag_wheel_${PKG_NAME}_${temp_version_range_str})
             # all the following can be skipped if the tag wheel was already cached
 
             # package is not yet in the selected list
             # build the version wheel for this package
-            if(NOT mirror_${pkg_name}_up_to_date)
+            if(NOT mirror_${PKG_NAME}_up_to_date)
                 if(NOT EXISTS "${mirror_dir}/HEAD")
-                    message(STATUS "BPM [${PROJECT_NAME}:${pkg_name}]: Cloning git repository: ${pkg_git_repo} into: ${mirror_dir}")
-                    if(BPM_VERBOSE)
-                        execute_process(COMMAND git clone --mirror "${pkg_git_repo}" "${mirror_dir}" --recursive -c advice.detachedHead=false RESULT_VARIABLE res)
-                    else()
-                        execute_process(COMMAND git clone --mirror "${pkg_git_repo}" "${mirror_dir}" --recursive -c advice.detachedHead=false RESULT_VARIABLE res ERROR_QUIET OUTPUT_QUIET)
+                message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Cloning git repository: ${PKG_GIT_REPOSITORY} into: ${mirror_dir}")
+
+                    file(LOCK "${mirror_dir}/.lock")
+                    if(NOT EXISTS "${mirror_dir}/HEAD")
+                        if(BPM_VERBOSE)
+                            execute_process(COMMAND git clone --mirror "${PKG_GIT_REPOSITORY}" "${mirror_dir}" --recursive -c advice.detachedHead=false RESULT_VARIABLE res)
+                        else()
+                            execute_process(COMMAND git clone --mirror "${PKG_GIT_REPOSITORY}" "${mirror_dir}" --recursive -c advice.detachedHead=false RESULT_VARIABLE res ERROR_QUIET OUTPUT_QUIET)
+                        endif()
                     endif()
+                    file(LOCK "${mirror_dir}/.lock" RELEASE)
 
                     if(res EQUAL 0)
-                        message(STATUS "BPM [${PROJECT_NAME}:${pkg_name}]: Cloning git repository - success")
-                        set(mirror_${pkg_name}_up_to_date TRUE)
+                        message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Cloning git repository - success")
+                        set(mirror_${PKG_NAME}_up_to_date TRUE)
                     else() 
-                        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${pkg_name}]: Cloning git repository - failed")
+                        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Cloning git repository - failed")
                     endif()
                 endif()
             endif()
 
 
             # see if tags have already been acquired
-            if(DEFINED BPM_REGISTRY_${pkg_name}_GIT_TAGS)
-                set(tags "${BPM_REGISTRY_${pkg_name}_GIT_TAGS}")
+            if(DEFINED BPM_REGISTRY_${PKG_NAME}_GIT_TAGS)
+                set(tags "${BPM_REGISTRY_${PKG_NAME}_GIT_TAGS}")
             else()
                 # if tags have not been acquired - load them
+                file(LOCK "${mirror_dir}/.lock")
                 execute_process(COMMAND git "--git-dir=${mirror_dir}" tag --sort=-committerdate RESULT_VARIABLE res OUTPUT_VARIABLE tags ERROR_QUIET)
+                file(LOCK "${mirror_dir}/.lock" RELEASE)
+
                 if(NOT res EQUAL 0)
-                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${pkg_name}]: Failed to get tags from mirror: ${mirror_dir}." )
+                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Failed to get tags from mirror: ${mirror_dir}." )
                 endif()
 
                 # turn the console output into a CMake list
@@ -794,50 +801,55 @@ function(bpm_solve_dependencies in_packages out_selected_list)
                 string(REPLACE "\n" ";" tags "${tags}")
 
                 # cache tags
-                set("BPM_REGISTRY_${pkg_name}_GIT_TAGS" "${tags}")
+                set("BPM_REGISTRY_${PKG_NAME}_GIT_TAGS" "${tags}")
             endif()
 
-            if(NOT mirror_${pkg_name}_up_to_date)
+            if(NOT mirror_${PKG_NAME}_up_to_date)
                 # check if the version range is fully contained with the mirrors tags
-                bpm_fully_contains_tag_range("${tags}" "${pkg_version_range}" contains)
+                bpm_fully_contains_tag_range("${tags}" "${PKG_VERSION_RANGE}" contains)
 
                 # fetch if upper version bound is inf or tag is not contained
                 if(NOT contains)
-                    message(STATUS "BPM [${PROJECT_NAME}:${pkg_name}]: mirror might be out-of-date - fetch for updates")
+                    message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch for updates")
                     
+                    file(LOCK "${mirror_dir}/.lock")
                     if(BPM_VERBOSE)
                         execute_process(COMMAND git "--git-dir=${mirror_dir}" fetch --tags --prune RESULT_VARIABLE res)
                     else()
                         execute_process(COMMAND git "--git-dir=${mirror_dir}" fetch --tags --prune RESULT_VARIABLE res OUTPUT_QUIET ERROR_QUIET)
                     endif()
+                    file(LOCK "${mirror_dir}/.lock" RELEASE)
 
                     if(res EQUAL 0)
-                        message(STATUS "BPM [${PROJECT_NAME}:${pkg_name}]: mirror might be out-of-date - fetch for updates - success")
+                        message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch for updates - success")
                     else() 
-                        message(WARNING "BPM [${PROJECT_NAME}:${pkg_name}]: mirror might be out-of-date - fetch for updates - failed")
+                        message(WARNING "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch for updates - failed")
                     endif()
-                    set(mirror_${pkg_name}_up_to_date TRUE)
+                    set(mirror_${PKG_NAME}_up_to_date TRUE)
                 endif()
             endif()
 
         
-            bpm_filter_version_tags("${tags}" "${pkg_version_range}" tag_wheel)
-            set(cached_tag_wheel_${pkg_name}_${temp_version_range_str} "${tag_wheel}")
+            bpm_filter_version_tags("${tags}" "${PKG_VERSION_RANGE}" tag_wheel)
+            set(cached_tag_wheel_${PKG_NAME}_${temp_version_range_str} "${tag_wheel}")
         else()
-            set(tag_wheel "${cached_tag_wheel_${pkg_name}_${temp_version_range_str}}")
+            set(tag_wheel "${cached_tag_wheel_${PKG_NAME}_${temp_version_range_str}}")
         endif()
 
         list(POP_FRONT tag_wheel top_version)
 
         # load and cache metadata
-        if(NOT DEFINED metadata_${pkg_name}_${top_version})
+        if(NOT DEFINED metadata_${PKG_NAME}_${top_version})
+            file(LOCK "${mirror_dir}/.lock")
             execute_process(COMMAND git "--git-dir=${mirror_dir}" cat-file blob "${top_version}:.bpm-registry" RESULT_VARIABLE res OUTPUT_VARIABLE metadata_tmp ERROR_QUIET)
+            file(LOCK "${mirror_dir}/.lock" RELEASE)
+
             string(REPLACE "\r\n" "\n" metadata_tmp "${metadata_tmp}") # replace new lines windows to unix style
-            string(REPLACE "\n" ";" metadata_${pkg_name}_${top_version} "${metadata_tmp}") # replace new lines with ; for list seperators
+            string(REPLACE "\n" ";" metadata_${PKG_NAME}_${top_version} "${metadata_tmp}") # replace new lines with ; for list seperators
         endif()
 
                  
-        foreach(line IN LISTS metadata_${pkg_name}_${top_version})
+        foreach(line IN LISTS metadata_${PKG_NAME}_${top_version})
             if(line)
                 list(APPEND todo_list ${line})
             endif()
@@ -848,17 +860,17 @@ function(bpm_solve_dependencies in_packages out_selected_list)
         math(EXPR next_decision_counter "${decision_counter} + 1")
         
 
-        set(entry "NAME ${pkg_name} VERSION ${top_version} GIT_TAG ${pkg_git_tag} GIT_REPO ${pkg_git_repo}")
+        set(entry "NAME ${PKG_NAME} VERSION ${top_version} GIT_TAG ${PKG_GIT_TAG} GIT_REPO ${PKG_GIT_REPOSITORY}")
 
         set(decision_${next_decision_counter}_todo_list "${todo_list}")
         set(decision_${next_decision_counter}_selected_list "${decision_${decision_counter}_selected_list}")
         LIST(APPEND decision_${next_decision_counter}_selected_list "${entry}")
-        set(decision_${next_decision_counter}_pkg_name "${pkg_name}")
+        set(decision_${next_decision_counter}_pkg_name "${PKG_NAME}")
         set(decision_${next_decision_counter}_version "${top_version}")
         set(decision_${next_decision_counter}_tag_wheel "${tag_wheel}")
-        set(decision_${next_decision_counter}_range "${pkg_version_range}")
-        set(decision_${next_decision_counter}_git_tag "${pkg_git_tag}")
-        set(decision_${next_decision_counter}_git_repo "${pkg_git_repo}")
+        set(decision_${next_decision_counter}_range "${PKG_VERSION_RANGE}")
+        set(decision_${next_decision_counter}_git_tag "${PKG_GIT_TAG}")
+        set(decision_${next_decision_counter}_git_repo "${PKG_GIT_REPOSITORY}")
 
         set(decision_counter "${next_decision_counter}")
 
@@ -882,7 +894,7 @@ function(bpm_solve_dependencies in_packages out_selected_list)
 
 endfunction()
 
-function(bpm_create_manifest OUT_MANIFEST OUT_HASH)
+function(bpm_create_manifest OUT_MANIFEST)
     set(_manifest "")
     foreach(var IN LISTS ARGN)
         if(DEFINED ${var})
@@ -974,41 +986,50 @@ function(bpm_clone_from_mirror lib_name library_mirror_dir lib_src_dir git_tag)
         message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Cloning mirror '${library_mirror_dir}' into source dir '${lib_src_dir}'")
     endif()
     if(NOT EXISTS ${lib_src_dir}/.git)
-        if(BPM_VERBOSE)
-            execute_process(COMMAND git clone --reference "${library_mirror_dir}" --branch "${git_tag}" "${library_mirror_dir}" "${lib_src_dir}" -c advice.detachedHead=false RESULT_VARIABLE res)
-        else()
-            execute_process(COMMAND git clone --reference "${library_mirror_dir}" --branch "${git_tag}" "${library_mirror_dir}" "${lib_src_dir}" -c advice.detachedHead=false RESULT_VARIABLE res OUTPUT_QUIET)
+        file(LOCK "${lib_src_dir}/.lock") # lockorder: install -> build -> source -> mirror
+        if(NOT EXISTS ${lib_src_dir}/.git)
+            file(LOCK "${library_mirror_dir}/.lock")
+            # CLONE
+            if(BPM_VERBOSE)
+                execute_process(COMMAND git clone --reference "${library_mirror_dir}" --branch "${git_tag}" "${library_mirror_dir}" "${lib_src_dir}" -c advice.detachedHead=false RESULT_VARIABLE res)
+            else()
+                execute_process(COMMAND git clone --reference "${library_mirror_dir}" --branch "${git_tag}" "${library_mirror_dir}" "${lib_src_dir}" -c advice.detachedHead=false RESULT_VARIABLE res OUTPUT_QUIET)
+            endif()
+            
+            file(LOCK "${library_mirror_dir}/.lock" RELEASE)
+
+            if(res EQUAL 0)
+                if(BPM_VERBOSE)
+                    message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Cloning mirror into source dir - success")
+                endif()
+            else()
+                message(FATAL_ERROR "BPM [${PROJECT_NAME}:${lib_name}]: Cloning mirror '${library_mirror_dir}' into source dir '${lib_src_dir}' - failed")
+            endif()
+            
+            # SUBMODULES
+            if(BPM_VERBOSE)
+                message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Updating git-submodules")
+            endif()
+
+            if(BPM_VERBOSE)
+                execute_process(COMMAND git -C "${lib_src_dir}" submodule update --init --recursive RESULT_VARIABLE res)
+            else()
+                execute_process(COMMAND git -C "${lib_src_dir}" submodule update --init --recursive RESULT_VARIABLE res OUTPUT_QUIET)
+            endif()
         endif()
+        file(LOCK "${lib_src_dir}/.lock" RELEASE)
 
         if(res EQUAL 0)
             if(BPM_VERBOSE)
-                message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Cloning mirror into source dir - success")
+                message(STATUS "Updating git-submodules - success")
             endif()
         else()
-            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${lib_name}]: Cloning mirror '${library_mirror_dir}' into source dir '${lib_src_dir}' - failed")
+            message(FATAL_ERROR "Updating git-submodules - failed")
         endif()
     else()
         if(BPM_VERBOSE)
             message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Cloning mirror into source dir - skipped")
         endif()
-    endif()
-    
-    if(BPM_VERBOSE)
-        message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Updating git-submodules")
-    endif()
-
-    if(BPM_VERBOSE)
-        execute_process(COMMAND git -C "${lib_src_dir}" submodule update --init --recursive RESULT_VARIABLE res)
-    else()
-        execute_process(COMMAND git -C "${lib_src_dir}" submodule update --init --recursive RESULT_VARIABLE res OUTPUT_QUIET)
-    endif()
-
-    if(res EQUAL 0)
-        if(BPM_VERBOSE)
-            message(STATUS "Updating git-submodules - success")
-        endif()
-    else()
-        message(FATAL_ERROR "Updating git-submodules - failed")
     endif()
 
 endfunction()
@@ -1045,12 +1066,18 @@ function(bpm_configure_library lib_name lib_src_dir lib_build_dir options depend
     endif()
 
     # Check if this library uses BPM (has a .bpm-registry). If yes: pass the version solutions as a variable
+    file(LOCK "${lib_src_dir}/.lock")  
     set(dependencies_arg "")
     if(EXISTS "${lib_src_dir}/.bpm-registry")
         set(dependencies_arg "-DBPM_DEPENDENCY_SOLUTION=${CMAKE_BINARY_DIR}/bpm-dependency-solution.cmake")
     endif()
+    file(LOCK "${lib_src_dir}/.lock" RELEASE)
 
     # TODO: Optimisation: skip instead of re-configuring
+
+    # lockorder: install -> build -> source -> mirror
+    file(LOCK "${lib_build_dir}/.lock")
+    file(LOCK "${lib_src_dir}/.lock")  
 
     execute_process(
         COMMAND ${CMAKE_COMMAND}
@@ -1076,6 +1103,9 @@ function(bpm_configure_library lib_name lib_src_dir lib_build_dir options depend
         RESULT_VARIABLE res
     )
 
+    file(LOCK "${lib_src_dir}/.lock" RELEASE)
+    file(LOCK "${lib_build_dir}/.lock" RELEASE)
+
     if(res EQUAL 0)
         message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Configuring - done")
     else() 
@@ -1093,7 +1123,9 @@ function(bpm_build_library lib_name library_build_dir)
         set(parallel ${CMAKE_BUILD_PARALLEL_LEVEL})
     endif()
 
+    file(LOCK "${library_build_dir}/.lock")
     execute_process(COMMAND ${CMAKE_COMMAND} --build "${library_build_dir}" --config Release --parallel ${parallel} RESULT_VARIABLE res)
+    file(LOCK "${library_build_dir}/.lock" RELEASE)
 
     if(res EQUAL 0)
         message(NOTICE "BPM [${PROJECT_NAME}:${lib_name}]: Building - done")
@@ -1105,11 +1137,18 @@ endfunction()
 
 function(bpm_install_library lib_name lib_build_dir lib_install_dir)
     message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Installing")
+
+    # lockorder: install -> build -> source -> mirror
+    file(LOCK "${lib_install_dir}/.lock")
+    file(LOCK "${lib_build_dir}/.lock")
     if(BPM_VERBOSE)
         execute_process(COMMAND ${CMAKE_COMMAND} --install ${lib_build_dir} --prefix ${lib_install_dir} --config Release RESULT_VARIABLE res)
     else()
         execute_process(COMMAND ${CMAKE_COMMAND} --install ${lib_build_dir} --prefix ${lib_install_dir} --config Release RESULT_VARIABLE res OUTPUT_QUIET)
     endif()
+    file(LOCK "${lib_build_dir}/.lock" RELEASE)
+    file(LOCK "${lib_install_dir}/.lock" RELEASE)
+
     if(res EQUAL 0)
         message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Installing - done")
     else() 
@@ -1235,7 +1274,10 @@ function(BPMMakeAvailable)
 
         get_property(PKG_OPTIONS GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS")
 
+        file(LOCK "${lib_mirror_dir}/.lock")
         execute_process(COMMAND git "--git-dir=${lib_mirror_dir}" rev-parse "${PKG_VERSION}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE PKG_GIT_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE)
+        file(LOCK "${lib_mirror_dir}/.lock" RELEASE)
+
         if(NOT res EQUAL 0)
             message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Could not convert '${PKG_VERSION}' to commit-hash in mirror '${lib_mirror_dir}'")
         endif()
