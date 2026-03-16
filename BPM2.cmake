@@ -79,7 +79,7 @@ function(bpm_parse_version_string INPUT out_version_range)
             message(FATAL_ERROR "BPM [${PROJECT_NAME}:${NAME}]: Invalid qualifier '${VERSION_QUALIFIER}' for tag/hash '${VALUE}'")
         endif()
 
-        set(${out_version} "${VERSION_QUALIFIER}" "${VALUE}" PARENT_SCOPE)
+        set(${out_version_range} "${VERSION_QUALIFIER}" "${VALUE}" PARENT_SCOPE)
     endif()
 endfunction()
 
@@ -143,10 +143,10 @@ function(bpm_parse_short_dependency INPUT out_git_repo out_name out_tag)
     string(REGEX REPLACE "\\.git$" "" NAME "${NAME}")
 
     if(NOT NAME)
-        message(FATAL_ERROR "BPM [${PROJECT_NAME}]: Could not extract the repository name. Expected: 'paht/name' or `NAME ... GIT_REPOSITORY ... GIT_TAG ...` but got: ${FULL_PATH}")
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}]: Could not extract the repository name. Expected: 'path/name' or `NAME ... GIT_REPOSITORY ... GIT_TAG ...` but got: ${FULL_PATH}")
     endif()
 
-    if(NOT INPUT)
+    if(NOT VERSION_PART)
         message(FATAL_ERROR "BPM [${PROJECT_NAME}:${NAME}]: No version string provided. Expected: 'path/name@version'")
     endif()
 
@@ -327,8 +327,8 @@ function(BPMAddInstallPackage)
         endif()
 
         # check if there is a packages conflict
-        get_property(REGISTERED_PACKATES GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES")
-        set(JOINED_PACKAGES ${PKG_PACKAGES} ${REGISTERED_PACKATES})
+        get_property(REGISTERED_PACKAGES GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES")
+        set(JOINED_PACKAGES ${PKG_PACKAGES} ${REGISTERED_PACKAGES})
         list(REMOVE_DUPLICATES JOINED_PACKAGES)
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES" "${JOINED_PACKAGES}")
 
@@ -366,13 +366,13 @@ function(bpm_get_cache_dir RESULT_VAR)
 endfunction()
 
 function(bpm_fully_contains_tag_range IN_VERSIONS RANGE OUT)
+    list(GET RANGE 0 version_lower)
+    list(GET RANGE 1 version_upper)
+
     if("${version_upper}" STREQUAL "inf.inf.inf")
         set(${OUT} FALSE PARENT_SCOPE)
         return()
     endif()
-
-    list(GET RANGE 0 version_lower)
-    list(GET RANGE 1 version_upper)
 
     # check if we are searching for an exact match
     set(exact_match FALSE)
@@ -759,7 +759,7 @@ function(bpm_solve_dependencies in_packages out_selected_list)
             # all the following can be skipped if the tag wheel was already cached
 
             # package is not yet in the selected list
-            # build the version wheel for this pakcage
+            # build the version wheel for this package
             if(NOT mirror_${pkg_name}_up_to_date)
                 if(NOT EXISTS "${mirror_dir}/HEAD")
                     message(STATUS "BPM [${PROJECT_NAME}:${pkg_name}]: Cloning git repository: ${pkg_git_repo} into: ${mirror_dir}")
@@ -1045,12 +1045,12 @@ function(bpm_configure_library lib_name lib_src_dir lib_build_dir options depend
     endif()
 
     # Check if this library uses BPM (has a .bpm-registry). If yes: pass the version solutions as a variable
-    set(dpendencies_arg "")
+    set(dependencies_arg "")
     if(EXISTS "${lib_src_dir}/.bpm-registry")
-        set(dpendencies_arg "-DBPM_DEPENDENCY_SOLUTION=${CMAKE_BINARY_DIR}/bpm-dependency-solution.txt")
+        set(dependencies_arg "-DBPM_DEPENDENCY_SOLUTION=${CMAKE_BINARY_DIR}/bpm-dependency-solution.cmake")
     endif()
 
-    # TODO: Optimisation: skipp instead of re-configuring
+    # TODO: Optimisation: skip instead of re-configuring
 
     execute_process(
         COMMAND ${CMAKE_COMMAND}
@@ -1071,7 +1071,7 @@ function(bpm_configure_library lib_name lib_src_dir lib_build_dir options depend
         ${cmake_build_args}
         ${toolchain_args}
         ${cmake_disable_test_example_flags}
-        ${dpendencies_arg}
+        ${dependencies_arg}
 
         RESULT_VARIABLE res
     )
@@ -1170,8 +1170,16 @@ function(BPMMakeAvailable)
             "GIT_TAG ${GIT_TAG} GIT_REPOSITORY ${GIT_REPOSITORY}\n"
         )
     endforeach()
-    # remove 
-    file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/.bpm-registry" "${registry_file_content}\n")
+    
+    # TODO: sort fily by package names before writing for improved robustness
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.bpm-registry")
+        file(READ "${CMAKE_CURRENT_SOURCE_DIR}/.bpm-registry" old_registry_file_content)
+        if(NOT "${registry_file_content}\n" STREQUAL "${old_registry_file_content}")
+            file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/.bpm-registry" "${registry_file_content}\n")
+        endif()
+    else()
+        file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/.bpm-registry" "${registry_file_content}\n")
+    endif()
 
     # -------------------------------
     # Solve Dependency Graph
@@ -1179,10 +1187,12 @@ function(BPMMakeAvailable)
 
     if(NOT DEFINED BPM_DEPENDENCY_SOLUTION)
         bpm_solve_dependencies("${registry_content}" solution)
-        file(WRITE "${CMAKE_BINARY_DIR}/bpm-dependency-solution.txt" "${solution}")
+        
+        # write/update solution on change
+        file(WRITE "${CMAKE_BINARY_DIR}/bpm-dependency-solution.cmake" "${solution}")
 
         message(STATUS "")
-        message(STATUS "================= Dependecy Graph Solution =================")
+        message(STATUS "================= Dependency Graph Solution =================")
 
         foreach(pkg IN LISTS solution)
             set(options)
@@ -1274,9 +1284,9 @@ function(BPMMakeAvailable)
 
         get_property("BPM_${PKG_NAME}_INSTALL" GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_INSTALL")
         if(BPM_${PKG_NAME}_INSTALL)
-            get_property(REGISTERED_PACKATES GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES")
+            get_property(REGISTERED_PACKAGES GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES")
 
-            bpm_try_find_packages("${PKG_NAME}" "${REGISTERED_PACKATES}" "${lib_install_dir}" all_packages_found)
+            bpm_try_find_packages("${PKG_NAME}" "${REGISTERED_PACKAGES}" "${lib_install_dir}" all_packages_found)
             if(NOT all_packages_found)
                 message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Find packages - failed: attempt install")
 
@@ -1296,7 +1306,7 @@ function(BPMMakeAvailable)
                 bpm_show_installed_packages("${PKG_NAME}" "${lib_install_dir}")
 
                 # try to make the packagse available
-                bpm_try_find_packages("${PKG_NAME}" "${REGISTERED_PACKATES}" "${lib_install_dir}" all_packages_found)
+                bpm_try_find_packages("${PKG_NAME}" "${REGISTERED_PACKAGES}" "${lib_install_dir}" all_packages_found)
                 if(NOT all_packages_found)
                     message(FATAL_ERROR "BPM [${PROJECT_NAME}:${BPM_NAME}]: Find package - failed after (re-)install")
                 endif()
