@@ -455,55 +455,6 @@ function(bpm_filter_version_tags IN_TAGS IN_RANGE OUT_FILTERED_TAGS)
     set(${OUT_FILTERED_TAGS} "${filtered_version_tags}" PARENT_SCOPE)
 endfunction()
 
-function(bpm_parse_registry_range_entry INPUT_LIST OUT_NAME OUT_VERSION_RANGE OUT_GIT_TAG OUT_GIT_REPOSITORY)
-    separate_arguments(tokens UNIX_COMMAND "${INPUT_LIST}")
-
-    set(name "")
-    set(version_range "")
-    set(git_tag "")
-    set(git_repository "")
-
-    set(expect "")
-
-    foreach(arg IN LISTS tokens)
-        if(arg STREQUAL "NAME")
-            set(expect "NAME")
-            continue()
-        elseif(arg STREQUAL "VERSION_RANGE")
-            set(expect "VERSION_RANGE")
-            continue()
-        elseif(arg STREQUAL "GIT_TAG")
-            set(expect "GIT_TAG")
-            continue()
-        elseif(arg STREQUAL "GIT_REPOSITORY")
-            set(expect "GIT_REPOSITORY")
-            continue()
-        endif()
-
-        if(expect STREQUAL "NAME")
-            set(name "${arg}")
-            set(expect "")
-        elseif(expect STREQUAL "VERSION_RANGE")
-            set(version_range "${arg}")
-            string(REPLACE "-" ";" version_range ${version_range})
-            set(expect "")
-        elseif(expect STREQUAL "GIT_TAG")
-            set(git_tag "${arg}")
-            set(expect "")
-        elseif(expect STREQUAL "GIT_REPOSITORY")
-            set(git_repository "${arg}")
-            set(expect "")
-        endif()
-
-    endforeach()
-
-    set(${OUT_NAME} "${name}" PARENT_SCOPE)
-    set(${OUT_VERSION_RANGE} "${version_range}" PARENT_SCOPE)
-    set(${OUT_GIT_TAG} "${git_tag}" PARENT_SCOPE)
-    set(${OUT_GIT_REPOSITORY} "${git_repository}" PARENT_SCOPE)
-
-endfunction()
-
 function(bpm_is_version_in_range in_tag in_range out)
     list(GET in_range 0 range_lower)
     list(GET in_range 1 range_upper)
@@ -1293,6 +1244,13 @@ function(BPMMakeAvailable)
             CMAKE_SYSTEM_NAME
             CMAKE_SYSTEM_PROCESSOR
             CMAKE_VERSION
+            BUILD_SHARED_LIBS
+            CMAKE_POSITION_INDEPENDENT_CODE
+            CMAKE_INTERPROCEDURAL_OPTIMIZATION
+            CMAKE_C_FLAGS
+            CMAKE_CXX_FLAGS
+            CMAKE_EXE_LINKER_FLAGS
+            CMAKE_SHARED_LINKER_FLAGS
             TOOLCHAIN_HASH
             PKG_NAME
             PKG_VERSION
