@@ -12,6 +12,35 @@ function(bpm_parse_version_string INPUT out_version_range)
     set(VERSION_MINOR "")
     set(VERSION_PATCH "")
 
+    string(REGEX MATCH "^[ \t]*(>=|\\^|~|=)?v?([0-9]+\\.[0-9]+\\.[0-9]+)(.*(<)([0-9]+\\.[0-9]+\\.[0-9]+)[^<]*)?$" _match_result "${SAFE_INPUT}")
+
+    message(STATUS "_match_result: ${_match_result}")
+    message(STATUS "CMAKE_MATCH_0: ${CMAKE_MATCH_0}")
+    message(STATUS "CMAKE_MATCH_1: ${CMAKE_MATCH_1}")
+    message(STATUS "CMAKE_MATCH_2: ${CMAKE_MATCH_2}")
+    message(STATUS "CMAKE_MATCH_3: ${CMAKE_MATCH_3}")
+    message(STATUS "CMAKE_MATCH_4: ${CMAKE_MATCH_4}")
+    message(STATUS "CMAKE_MATCH_5: ${CMAKE_MATCH_5}")
+
+    if(_match_result)
+        # has a semver version qualifier
+        if(CMAKE_MATCH_1)
+            set(version_qualifier "${CMAKE_MATCH_1}")
+        else()
+            set(version_qualifier "=")
+        endif()
+        set(lower_bound_version "${CMAKE_MATCH_2}")
+        set(upper_bound_version "${CMAKE_MATCH_5}")
+
+        
+
+    else()
+        # no semver version qualifier --> assume git-tag or git-commit-hash
+    endif()
+    
+
+    message(FATAL_ERROR "DEBUG BREAK")
+
     # --------------------------------------------------------
     # Split qualifier from remainder
     # --------------------------------------------------------
@@ -24,9 +53,9 @@ function(bpm_parse_version_string INPUT out_version_range)
     set(VALUE     "${CMAKE_MATCH_2}")
 
     # --------------------------------------------------------
-    # Try semantic version (optional leading 'v')
+    # Try semantic version
     # --------------------------------------------------------
-    string(REGEX MATCH "([0-9]+)\\.([0-9]+)\\.([0-9]+)" _ "${VALUE}")
+    string(REGEX MATCH "^([0-9]+)\\.([0-9]+)\\.([0-9]+)" _ "${SAFE_INPUT}")
 
     if(CMAKE_MATCH_0)
         set(major_lower "${CMAKE_MATCH_1}")
@@ -191,7 +220,7 @@ function(bpm_parse_arguments INPUT out_name out_repo out_tag out_build_type out_
     endif()
 
     if(NOT PKG_GIT_TAG)
-        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: GIT_TAG is required")
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: git-tag or version constraint is required")
     else()
         bpm_parse_version_string("${PKG_GIT_TAG}" PKG_VERSION)
     endif()
