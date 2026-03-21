@@ -462,7 +462,46 @@ function(bpm_filter_version_tags IN_TAGS IN_RANGE OUT_FILTERED_TAGS)
     set(${OUT_FILTERED_TAGS} "${filtered_version_tags}" PARENT_SCOPE)
 endfunction()
 
-function(bpm_is_version_in_range in_tag in_range out)
+function(bpm_is_version_in_range in_pkg_name in_mirror in_mirror_lock_file in_tag in_range out)
+    list(LENGTH in_range range_size)
+    if(range_size EQUAL 1)
+        # range is only 1 element.
+        # this means we are looking for an exact match
+        # also semver compliant git tags will always have a range of 2.
+        # so in_range is not version
+        # compare git hashes for equality
+
+        file(LOCK "${mirror_lock_file}")
+            execute_process(COMMAND git "--git-dir=${in_mirror}" rev-parse "${in_tag}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE PKG_GIT_COMMIT_A OUTPUT_STRIP_TRAILING_WHITESPACE)
+            if(NOT res EQUAL 0)
+                message(FATAL_ERROR "BPM [${in_pkg_name}]: Cannot convert tag: ${in_tag} to commit-hash")
+            endif()
+            
+            execute_process(COMMAND git "--git-dir=${in_mirror}" rev-parse "${in_range}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE PKG_GIT_COMMIT_B OUTPUT_STRIP_TRAILING_WHITESPACE)
+            if(NOT res EQUAL 0)
+                # try again with leading v
+                execute_process(COMMAND git "--git-dir=${in_mirror}" rev-parse "v${in_range}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE PKG_GIT_COMMIT_B OUTPUT_STRIP_TRAILING_WHITESPACE)
+                if(NOT res EQUAL 0)
+                    message(FATAL_ERROR "BPM [${in_pkg_name}]: Cannot convert tag: ${in_range} to commit-hash")
+                endif()
+            endif()
+        file(LOCK "${mirror_lock_file}" RELEASE)
+
+        if("${PKG_GIT_COMMIT_A}" STREQUAL "${PKG_GIT_COMMIT_B}")
+            message(STATUS "out: true")
+            set(${out} TRUE PARENT_SCOPE)   
+            return()
+        else()
+            message(STATUS "out: false")
+            set(${out} FALSE PARENT_SCOPE)
+            return()
+        endif()
+    endif()
+
+    if(NOT range_size EQUAL 2)
+        message(FATAL_ERROR "'in_range' (${in_range}) has wrong size. should be 1 or 2")
+    endif()
+
     list(GET in_range 0 range_lower)
     list(GET in_range 1 range_upper)
 
@@ -473,15 +512,82 @@ function(bpm_is_version_in_range in_tag in_range out)
         if("${range_lower}" VERSION_LESS_EQUAL "${in_version}")
             if("${range_upper}" STREQUAL "inf.inf.inf")
                 set(${out} TRUE PARENT_SCOPE)
+                return()
             elseif("${in_version}" VERSION_LESS "${range_upper}")
                 set(${out} TRUE PARENT_SCOPE)
+                return()
             else()
                 set(${out} FALSE PARENT_SCOPE)
+                return()
             endif()
         else()
-            message(STATUS "${range_lower} VERSION_LESS_EQUAL ${in_version} - false")
             set(${out} FALSE PARENT_SCOPE)
+            return()
         endif()
+    else()
+        file(LOCK "${mirror_lock_file}")
+            execute_process(COMMAND git "--git-dir=${in_mirror}" rev-parse "${in_tag}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE tag_commit OUTPUT_STRIP_TRAILING_WHITESPACE)
+            if(NOT res EQUAL 0)
+                message(FATAL_ERROR "BPM [${in_pkg_name}]: Cannot convert tag: '${in_tag}' to commit-hash")
+            endif()
+            
+            execute_process(COMMAND git "--git-dir=${in_mirror}" rev-parse "${range_lower}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE range_low_commit OUTPUT_STRIP_TRAILING_WHITESPACE)
+            if(NOT res EQUAL 0)
+                # try again with leading v
+                execute_process(COMMAND git "--git-dir=${in_mirror}" rev-parse "v${range_lower}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE range_low_commit OUTPUT_STRIP_TRAILING_WHITESPACE)
+                if(NOT res EQUAL 0)
+                    message(FATAL_ERROR "BPM [${in_pkg_name}]: Cannot convert tag: '${range_lower}' to commit-hash")
+                endif()
+            endif()   
+        file(LOCK "${mirror_lock_file}" RELEASE)
+
+        execute_process(COMMAND git "--git-dir=${in_mirror}" merge-base --is-ancestor "${range_low_commit}" "${tag_commit}" RESULT_VARIABLE res)
+        
+        if(res EQUAL 0)
+            # yes commit A is older than commit B
+
+            if("${range_upper}" STREQUAL "inf.inf.inf")
+                set(${out} TRUE PARENT_SCOPE)
+                return()
+            else()
+                # convert upper range to commit
+                execute_process(COMMAND git "--git-dir=${in_mirror}" rev-parse "${range_upper}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE range_high_commit OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+                if(NOT res EQUAL 0)
+                    # try again with leading v
+                    execute_process(COMMAND git "--git-dir=${in_mirror}" rev-parse "v${range_upper}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE range_low_commit OUTPUT_STRIP_TRAILING_WHITESPACE)
+                    if(NOT res EQUAL 0)
+                        # check if the tag is semver compliant
+                        string(REGEX MATCH "([0-9]+\\.[0-9]+\\.[0-9]+)" _ "${range_upper}")
+                        if(CMAKE_MATCH_0)
+                            # tag is semver compliant - assume upper bound is a made up tag that does not exist yet --> treat like inf
+                            set(${out} TRUE PARENT_SCOPE)
+                            return()
+                        else()
+                            message(FATAL_ERROR "BPM [${in_pkg_name}]: Cannot convert tag: '${range_upper}' to commit-hash")
+                        endif()
+                    endif()
+                endif()
+
+                if("${tag_commit}" STREQUAL "${range_high_commit}")
+                    # range high is an open range border --> so if equal --> false
+                    set(${out} FALSE PARENT_SCOPE)
+                    return()
+                else()
+                    execute_process(COMMAND git "--git-dir=${in_mirror}" merge-base --is-ancestor "${tag_commit}" "${range_high_commit}" RESULT_VARIABLE res)
+                    if(res EQUAL 0)
+                        # success --> tag is in the range
+                        set(${out} TRUE PARENT_SCOPE)
+                    else()
+                        # failure --> tag is not in the range
+                        set(${out} FALSE PARENT_SCOPE)
+                    endif()
+                endif()
+        
+            endif()
+        else()
+            # not commit A is older than commit B
+            set(${out} FALSE PARENT_SCOPE)
+        endif()   
     endif()
     
 endfunction()
@@ -530,6 +636,21 @@ function(git_repo_equal A B RESULT)
     endif()
 endfunction()
  
+function(bpm_load_tag_list mirror_dir mirror_lock_file out_tags)
+    file(LOCK "${mirror_lock_file}")
+        execute_process(COMMAND git "--git-dir=${mirror_dir}" tag --sort=-committerdate RESULT_VARIABLE res OUTPUT_VARIABLE tags ERROR_QUIET)
+    file(LOCK "${mirror_lock_file}" RELEASE)
+
+    if(NOT res EQUAL 0)
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Failed to get tags from mirror: ${mirror_dir}." )
+    endif()
+
+    # turn the console output into a CMake list
+    string(REPLACE "\r\n" "\n" tags "${tags}")
+    string(REPLACE "\n" ";" tags "${tags}")
+    set(${out_tags} ${tags} PARENT_SCOPE)
+endfunction()
+
 function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
 
     set(decision_counter "0")
@@ -654,7 +775,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                 endif()
 
                 # check if the selected version is in the constraint
-                bpm_is_version_in_range("${SEL_VERSION}" "${PKG_VERSION_RANGE}" is_in_range)
+                bpm_is_version_in_range("${PKG_NAME}" "${mirror_dir}" "${mirror_lock_file}" "${SEL_VERSION}" "${PKG_VERSION_RANGE}" is_in_range)
                 
                 if(is_in_range)
                     # no version conflict - already part of the list
@@ -739,23 +860,12 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                 endif()
             endif()
 
-
             # see if tags have already been acquired
             if(DEFINED BPM_REGISTRY_${PKG_NAME}_GIT_TAGS)
                 set(tags "${BPM_REGISTRY_${PKG_NAME}_GIT_TAGS}")
             else()
                 # if tags have not been acquired - load them
-                file(LOCK "${mirror_lock_file}")
-                    execute_process(COMMAND git "--git-dir=${mirror_dir}" tag --sort=-committerdate RESULT_VARIABLE res OUTPUT_VARIABLE tags ERROR_QUIET)
-                file(LOCK "${mirror_lock_file}" RELEASE)
-
-                if(NOT res EQUAL 0)
-                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Failed to get tags from mirror: ${mirror_dir}." )
-                endif()
-
-                # turn the console output into a CMake list
-                string(REPLACE "\r\n" "\n" tags "${tags}")
-                string(REPLACE "\n" ";" tags "${tags}")
+                bpm_load_tag_list("${mirror_dir}" "${mirror_lock_file}" tags)
 
                 # cache tags
                 set("BPM_REGISTRY_${PKG_NAME}_GIT_TAGS" "${tags}")
@@ -799,6 +909,12 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                     else() 
                         message(WARNING "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch for updates - failed")
                     endif()
+
+                    # re-update tags after fetching
+                    bpm_load_tag_list("${mirror_dir}" "${mirror_lock_file}" tags)
+
+                    # cache tags
+                    set("BPM_REGISTRY_${PKG_NAME}_GIT_TAGS" "${tags}")
 
                     # TODO: check if at least one element is contained --> error if not
                     set(mirror_${PKG_NAME}_up_to_date TRUE)
@@ -1053,11 +1169,11 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
         file(LOCK "${lib_src_lock_file}")  
 
             # Check if this library uses BPM (has a .bpm-registry). If yes: pass the version solutions as a variable
-            set(dependencies_arg "")
-            set(bpm_cache_arg "")
+            set(dependencies_arg)
+            set(bpm_cache_arg)
             if(EXISTS "${lib_src_dir}/.bpm-registry")
-                set(dependencies_arg "-DBPM_DEPENDENCY_SOLUTION=${CMAKE_BINARY_DIR}/bpm-dependency-solution.cmake")
-                set(bpm_cache_arg "-DBPM_CACHE=${BPM_CACHE_DIR}")
+                set(dependencies_arg "'-DBPM_DEPENDENCY_SOLUTION=${CMAKE_BINARY_DIR}/bpm-dependency-solution.cmake'")
+                set(bpm_cache_arg "'-DBPM_CACHE=${BPM_CACHE_DIR}'")
             endif()
 
             # TODO: Optimisation: skip instead of re-configuring
@@ -1072,7 +1188,7 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
 
                 -DCMAKE_BUILD_TYPE=Release
 
-                "${bpm_cache_arg}"
+                ${bpm_cache_arg}
                 "-DCMAKE_INSTALL_PREFIX=${lib_install_dir}"
                 "-DCMAKE_POSITION_INDEPENDENT_CODE=${CMAKE_POSITION_INDEPENDENT_CODE}"
                 "-DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}"
