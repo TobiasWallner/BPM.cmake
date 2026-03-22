@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.20)
 # 
 # input: >=1.2.3 --> output: LIST 1.2.3;inf.inf.inf -- meaning: from version 1.2.3 to upper bound inf.inf.inf
 # input: ^1.2.3 --> output: LIST 1.2.3;2.0.0 -- meaning from version 1.2.3 to upper bound 2.0.0
-function(bpm_parse_version_string INPUT out_version_range)
+function(bpm_parse_version_string in_pkg_name INPUT out_version_range)
     string(REPLACE ";" "\\;" SAFE_INPUT "${INPUT}")
 
     set(VERSION_QUALIFIER "")
@@ -12,15 +12,15 @@ function(bpm_parse_version_string INPUT out_version_range)
     set(VERSION_MINOR "")
     set(VERSION_PATCH "")
 
-    string(REGEX MATCH "^[ \t]*(>=|\\^|~|=)?v?([0-9]+\\.[0-9]+\\.[0-9]+)(.*(<)([0-9]+\\.[0-9]+\\.[0-9]+)[^<]*)?$" _match_result "${SAFE_INPUT}")
+    string(REGEX MATCH "^[ \t]*(>=|\\^|~|=)?[ \t]*v?([0-9]+\\.[0-9]+\\.[0-9]+)(.*(<)[ \t]*v?([0-9]+\\.[0-9]+\\.[0-9]+)[^<]*)?[ \t]*$" _match_result "${SAFE_INPUT}")
 
-    message(STATUS "_match_result: ${_match_result}")
-    message(STATUS "CMAKE_MATCH_0: ${CMAKE_MATCH_0}")
-    message(STATUS "CMAKE_MATCH_1: ${CMAKE_MATCH_1}")
-    message(STATUS "CMAKE_MATCH_2: ${CMAKE_MATCH_2}")
-    message(STATUS "CMAKE_MATCH_3: ${CMAKE_MATCH_3}")
-    message(STATUS "CMAKE_MATCH_4: ${CMAKE_MATCH_4}")
-    message(STATUS "CMAKE_MATCH_5: ${CMAKE_MATCH_5}")
+    # message(STATUS "_match_result: ${_match_result}")
+    # message(STATUS "CMAKE_MATCH_0: ${CMAKE_MATCH_0}")
+    # message(STATUS "CMAKE_MATCH_1: ${CMAKE_MATCH_1}")
+    # message(STATUS "CMAKE_MATCH_2: ${CMAKE_MATCH_2}")
+    # message(STATUS "CMAKE_MATCH_3: ${CMAKE_MATCH_3}")
+    # message(STATUS "CMAKE_MATCH_4: ${CMAKE_MATCH_4}")
+    # message(STATUS "CMAKE_MATCH_5: ${CMAKE_MATCH_5}")
 
     if(_match_result)
         # has a semver version qualifier
@@ -32,14 +32,96 @@ function(bpm_parse_version_string INPUT out_version_range)
         set(lower_bound_version "${CMAKE_MATCH_2}")
         set(upper_bound_version "${CMAKE_MATCH_5}")
 
-        
+        if(lower_bound_version)
+            if(upper_bound_version)
+                if(NOT "${lower_bound_version}" VERSION_LESS "${upper_bound_version}")
+                    message(FATAL_ERROR "BPM [${in_pkg_name}]: Invalid version constraint: ${version_qualifier}${lower_bound_version} <${upper_bound_version}. The lower bound (${lower_bound_version}) has to be strictly less than the uper bound ${upper_bound_version}")
+                endif()
+            endif()
+        endif()
 
+        string(REGEX MATCH "^([0-9]+)\\.([0-9]+)\\.([0-9]+)" _match_result "${lower_bound_version}")
+        if(_match_result)
+            set(major_lower "${CMAKE_MATCH_1}")
+            set(minor_lower "${CMAKE_MATCH_2}")
+            set(patch_lower "${CMAKE_MATCH_3}")
+
+            if(version_qualifier STREQUAL ">=")
+                set(major_upper "inf")
+                set(minor_upper "inf")
+                set(patch_upper "inf")
+            elseif(version_qualifier STREQUAL "^")
+                if(major_lower EQUAL 0)
+                    set(major_upper "0")
+                    math(EXPR minor_upper "${minor_lower} + 1")
+                    set(patch_upper "0")
+                else()
+                    math(EXPR major_upper "${major_lower} + 1")
+                    set(minor_upper "0")
+                    set(patch_upper "0")
+                endif()
+            elseif(version_qualifier STREQUAL "~")
+                set(major_upper "${major_lower}")
+                math(EXPR minor_upper "${minor_lower} + 1")
+                set(patch_upper "0")
+            else()
+                set(major_upper ${major_lower})
+                set(minor_upper ${minor_lower})
+                math(EXPR patch_upper "${patch_lower} + 1") # upper bound is non inclusive
+            endif()
+            
+            set(out_version_range_0 "${major_lower}.${minor_lower}.${patch_lower}")
+            set(out_version_range_1 "${major_upper}.${minor_upper}.${patch_upper}")
+
+            if(BPM_VERBOSE)
+                message(STATUS "BPM [${in_pkg_name}]: range from lowerbound constraint '${version_qualifier}${lower_bound_version}' --> ${out_version_range_0}-${out_version_range_1}")
+            endif()
+
+            if(upper_bound_version)
+                if("${out_version_range_1}" STREQUAL "inf.inf.inf")
+                    set(out_version_range_1 "${upper_bound_version}")
+                elseif("${upper_bound_version}" VERSION_LESS out_version_range_1)
+                    set(out_version_range_1 "${upper_bound_version}")
+                endif()
+
+                if(BPM_VERBOSE)
+                    message(STATUS "BPM [${in_pkg_name}]: range from lower- & upper-bound constraints '${version_qualifier}${lower_bound_version} <${upper_bound_version}' --> ${out_version_range_0}-${out_version_range_1}")
+                endif()
+            endif()
+            
+            # Valid semver
+            set(${out_version_range} "${out_version_range_0}" "${out_version_range_1}" PARENT_SCOPE)
+            return()
+        else()
+            message(FATAL_ERROR "BPM [${in_pkg_name}]: lower_bound_version (${lower_bound_version}) not semver")
+        endif()
     else()
         # no semver version qualifier --> assume git-tag or git-commit-hash
-    endif()
-    
+        string(REGEX MATCH "^[ \t]*((>=|\\^|~|=)?[ \t]*(.+))[ \t]*$" _match_result "${SAFE_INPUT}")
+        
+        message(STATUS "_match_result: ${_match_result}")
+        message(STATUS "CMAKE_MATCH_0: ${CMAKE_MATCH_0}")
+        message(STATUS "CMAKE_MATCH_1: ${CMAKE_MATCH_1}")
+        message(STATUS "CMAKE_MATCH_2: ${CMAKE_MATCH_2}")
+        message(STATUS "CMAKE_MATCH_3: ${CMAKE_MATCH_3}")
+        message(STATUS "CMAKE_MATCH_4: ${CMAKE_MATCH_4}")
+        message(STATUS "CMAKE_MATCH_5: ${CMAKE_MATCH_5}")
+        message(FATAL_ERROR "DEBUG BREAK")
+        if(_match_result)
+            set(git_tag "${CMAKE_MATCH_1}")
 
-    message(FATAL_ERROR "DEBUG BREAK")
+            # todo: check if the git tag contains whitespaces --> error
+
+            set(version_qualifier "${CMAKE_MATCH_2}")
+            if(version_qualifier)
+                message(WARNING "BPM [${in_pkg_name}]: Version constraints (like '${version_qualifier}') are not supported for named-git-tags or git-commit-hashes '${git_tag}'.")
+            endif()
+            set(${out_version_range} "${git_tag}" PARENT_SCOPE)
+            return()
+        else()
+            message(FALTAL_ERROR "BPM [${in_pkg_name}]: Could not parse version string ${INPUT}")
+        endif()
+    endif()
 
     # --------------------------------------------------------
     # Split qualifier from remainder
@@ -91,6 +173,7 @@ function(bpm_parse_version_string INPUT out_version_range)
             "${major_lower}.${minor_lower}.${patch_lower}" 
             "${major_upper}.${minor_upper}.${patch_upper}"
             PARENT_SCOPE)
+        return()
     else()
         # check for user input errors
         if(NOT (VERSION_QUALIFIER STREQUAL ">=" OR VERSION_QUALIFIER STREQUAL "^" OR VERSION_QUALIFIER STREQUAL "~" OR VERSION_QUALIFIER STREQUAL "="))
@@ -107,49 +190,10 @@ function(bpm_parse_version_string INPUT out_version_range)
         endif()
 
         set(${out_version_range} "${VALUE}" PARENT_SCOPE)
+        return()
     endif()
 endfunction()
 
-# @brief parses a path or url followed by a tag, commit or version with optional constraints
-# 
-# examples:
-# ---------
-# - path: `https://github.com/org/repo`
-#
-# - with version: https://github.com/org/repo@1.2.3
-# - with v-version: https://github.com/org/repo@v1.2.3
-# 
-# - with constrained version: https://github.com/org/repo@>=1.2.3
-# - with constrained version: https://github.com/org/repo@^1.2.3
-# - with constrained version: https://github.com/org/repo@~1.2.3
-# - with constrained version: https://github.com/org/repo@=1.2.3
-#
-# - with constrained v-version: https://github.com/org/repo@>=v1.2.3
-# - with constrained v-version: https://github.com/org/repo@^v1.2.3
-# - with constrained v-version: https://github.com/org/repo@~v1.2.3
-# - with constrained v-version: https://github.com/org/repo@=v1.2.3
-# 
-# - with named tag: https://github.com/org/repo@git-tag
-# - with constrained named tag: https://github.com/org/repo@>=git-tag
-# - with constrained named tag: https://github.com/org/repo@=git-tag
-# - Not allowed: https://github.com/org/repo@^git-tag
-# - Not allowed: https://github.com/org/repo@~git-tag
-#
-# - with commit hash: https://github.com/org/repo@a5486b
-# - with constrained commit hash: https://github.com/org/repo@>=a5486b
-# - Not allowed: https://github.com/org/repo@^a5486b
-# - Not allowed: https://github.com/org/repo@~a5486b
-# ```
-#
-# Outputs:
-# - PARSE_FULL_PATH
-# - PARSE_NAME
-# - PARSE_VERSION_QUALIFIER
-# - PARSE_VERSION_MAJOR
-# - PARSE_VERSION_MINOR
-# - PARSE_VERSION_PATCH
-# - PARSE_GIT_TAG_OR_HASH
-# 
 
 function(bpm_parse_short_dependency INPUT out_git_repo out_name out_tag)
 
@@ -159,7 +203,14 @@ function(bpm_parse_short_dependency INPUT out_git_repo out_name out_tag)
     string(REGEX MATCH "^([^@]+)(@(.+))?$" _ "${INPUT}")
 
     set(FULL_PATH "${CMAKE_MATCH_1}")
+    if(BPM_VERBOSE)
+        message(STATUS "${INPUT} --> Full Path: ${FULL_PATH}")
+    endif()
+
     set(VERSION_PART "${CMAKE_MATCH_3}")
+    if(BPM_VERBOSE)
+        message(STATUS "${INPUT} --> Full Path: ${VERSION_PART}")
+    endif()
 
     # ------------------------------------------------------------
     # Extract repository name (after last '/' or '\')
@@ -167,7 +218,14 @@ function(bpm_parse_short_dependency INPUT out_git_repo out_name out_tag)
     #string(REGEX MATCH "([^/\\\\]+)\\.git$" _ "${FULL_PATH}")
     string(REGEX MATCH "^.*[/\\\\]([^/\\\\]+)$" _ "${FULL_PATH}")
     set(NAME "${CMAKE_MATCH_1}")
-    string(REGEX REPLACE "\\.git$" "" NAME "${NAME}")
+    if(BPM_VERBOSE)
+        message(STATUS "${INPUT} --> Name: ${NAME}")
+    endif()
+
+    string(REGEX REPLACE "\\.git[ \t]*$" "" NAME "${NAME}")
+    if(BPM_VERBOSE)
+        message(STATUS "${INPUT} --> Name (removed '.git'): ${NAME}")
+    endif()
 
     if(NOT NAME)
         message(FATAL_ERROR "BPM [${PROJECT_NAME}]: Could not extract the repository name. Expected: 'path/name' or `NAME ... GIT_REPOSITORY ... GIT_TAG ...` but got: ${FULL_PATH}")
@@ -212,7 +270,7 @@ function(bpm_parse_arguments INPUT out_name out_repo out_tag out_build_type out_
     endif()
 
     if(NOT PKG_PACKAGES)
-        set(PKG_PACKAGES ${PKG_NAME})
+        set(PKG_PACKAGES "${PKG_NAME}")
     endif()
     
     if(NOT PKG_GIT_REPOSITORY)
@@ -222,7 +280,7 @@ function(bpm_parse_arguments INPUT out_name out_repo out_tag out_build_type out_
     if(NOT PKG_GIT_TAG)
         message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: git-tag or version constraint is required")
     else()
-        bpm_parse_version_string("${PKG_GIT_TAG}" PKG_VERSION)
+        bpm_parse_version_string("${PKG_NAME}" "${PKG_GIT_TAG}" PKG_VERSION)
     endif()
 
     if(NOT PKG_BUILD_TYPE)
@@ -501,17 +559,17 @@ function(bpm_is_version_in_range in_pkg_name in_mirror in_mirror_lock_file in_ta
         # compare git hashes for equality
 
         file(LOCK "${mirror_lock_file}")
-            execute_process(COMMAND git "--git-dir=${in_mirror}" rev-parse "${in_tag}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE PKG_GIT_COMMIT_A OUTPUT_STRIP_TRAILING_WHITESPACE)
+            execute_process(COMMAND git --git-dir "${in_mirror}" rev-parse "${in_tag}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE PKG_GIT_COMMIT_A OUTPUT_STRIP_TRAILING_WHITESPACE)
             if(NOT res EQUAL 0)
                 message(FATAL_ERROR "BPM [${in_pkg_name}]: Cannot convert tag: ${in_tag} to commit-hash")
             endif()
             
-            execute_process(COMMAND git "--git-dir=${in_mirror}" rev-parse "${in_range}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE PKG_GIT_COMMIT_B OUTPUT_STRIP_TRAILING_WHITESPACE)
+            execute_process(COMMAND git --git-dir "${in_mirror}" rev-parse "${in_range}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE PKG_GIT_COMMIT_B OUTPUT_STRIP_TRAILING_WHITESPACE)
             if(NOT res EQUAL 0)
                 # try again with leading v
-                execute_process(COMMAND git "--git-dir=${in_mirror}" rev-parse "v${in_range}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE PKG_GIT_COMMIT_B OUTPUT_STRIP_TRAILING_WHITESPACE)
+                execute_process(COMMAND git --git-dir "${in_mirror}" rev-parse "v${in_range}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE PKG_GIT_COMMIT_B OUTPUT_STRIP_TRAILING_WHITESPACE)
                 if(NOT res EQUAL 0)
-                    message(FATAL_ERROR "BPM [${in_pkg_name}]: Cannot convert tag: ${in_range} to commit-hash")
+                    message(FATAL_ERROR "BPM [${in_pkg_name}]: Cannot convert tag: '${in_range}' to commit-hash")
                 endif()
             endif()
         file(LOCK "${mirror_lock_file}" RELEASE)
@@ -555,22 +613,22 @@ function(bpm_is_version_in_range in_pkg_name in_mirror in_mirror_lock_file in_ta
         endif()
     else()
         file(LOCK "${mirror_lock_file}")
-            execute_process(COMMAND git "--git-dir=${in_mirror}" rev-parse "${in_tag}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE tag_commit OUTPUT_STRIP_TRAILING_WHITESPACE)
+            execute_process(COMMAND git --git-dir "${in_mirror}" rev-parse "${in_tag}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE tag_commit OUTPUT_STRIP_TRAILING_WHITESPACE)
             if(NOT res EQUAL 0)
                 message(FATAL_ERROR "BPM [${in_pkg_name}]: Cannot convert tag: '${in_tag}' to commit-hash")
             endif()
             
-            execute_process(COMMAND git "--git-dir=${in_mirror}" rev-parse "${range_lower}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE range_low_commit OUTPUT_STRIP_TRAILING_WHITESPACE)
+            execute_process(COMMAND git --git-dir "${in_mirror}" rev-parse "${range_lower}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE range_low_commit OUTPUT_STRIP_TRAILING_WHITESPACE)
             if(NOT res EQUAL 0)
                 # try again with leading v
-                execute_process(COMMAND git "--git-dir=${in_mirror}" rev-parse "v${range_lower}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE range_low_commit OUTPUT_STRIP_TRAILING_WHITESPACE)
+                execute_process(COMMAND git --git-dir "${in_mirror}" rev-parse "'v${range_lower}'^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE range_low_commit OUTPUT_STRIP_TRAILING_WHITESPACE)
                 if(NOT res EQUAL 0)
                     message(FATAL_ERROR "BPM [${in_pkg_name}]: Cannot convert tag: '${range_lower}' to commit-hash")
                 endif()
             endif()   
         file(LOCK "${mirror_lock_file}" RELEASE)
 
-        execute_process(COMMAND git "--git-dir=${in_mirror}" merge-base --is-ancestor "${range_low_commit}" "${tag_commit}" RESULT_VARIABLE res)
+        execute_process(COMMAND git --git-dir "${in_mirror}" merge-base --is-ancestor "${range_low_commit}" "${tag_commit}" RESULT_VARIABLE res)
         
         if(res EQUAL 0)
             # yes commit A is older than commit B
@@ -580,10 +638,10 @@ function(bpm_is_version_in_range in_pkg_name in_mirror in_mirror_lock_file in_ta
                 return()
             else()
                 # convert upper range to commit
-                execute_process(COMMAND git "--git-dir=${in_mirror}" rev-parse "${range_upper}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE range_high_commit OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+                execute_process(COMMAND git --git-dir "${in_mirror}" rev-parse "${range_upper}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE range_high_commit OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
                 if(NOT res EQUAL 0)
                     # try again with leading v
-                    execute_process(COMMAND git "--git-dir=${in_mirror}" rev-parse "v${range_upper}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE range_low_commit OUTPUT_STRIP_TRAILING_WHITESPACE)
+                    execute_process(COMMAND git --git-dir "${in_mirror}" rev-parse "v${range_upper}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE range_low_commit OUTPUT_STRIP_TRAILING_WHITESPACE)
                     if(NOT res EQUAL 0)
                         # check if the tag is semver compliant
                         string(REGEX MATCH "([0-9]+\\.[0-9]+\\.[0-9]+)" _ "${range_upper}")
@@ -602,7 +660,7 @@ function(bpm_is_version_in_range in_pkg_name in_mirror in_mirror_lock_file in_ta
                     set(${out} FALSE PARENT_SCOPE)
                     return()
                 else()
-                    execute_process(COMMAND git "--git-dir=${in_mirror}" merge-base --is-ancestor "${tag_commit}" "${range_high_commit}" RESULT_VARIABLE res)
+                    execute_process(COMMAND git --git-dir "${in_mirror}" merge-base --is-ancestor "${tag_commit}" "${range_high_commit}" RESULT_VARIABLE res)
                     if(res EQUAL 0)
                         # success --> tag is in the range
                         set(${out} TRUE PARENT_SCOPE)
@@ -667,7 +725,7 @@ endfunction()
  
 function(bpm_load_tag_list mirror_dir mirror_lock_file out_tags)
     file(LOCK "${mirror_lock_file}")
-        execute_process(COMMAND git "--git-dir=${mirror_dir}" tag --sort=-committerdate RESULT_VARIABLE res OUTPUT_VARIABLE tags ERROR_QUIET)
+        execute_process(COMMAND git --git-dir "${mirror_dir}" tag --sort=-committerdate RESULT_VARIABLE res OUTPUT_VARIABLE tags ERROR_QUIET)
     file(LOCK "${mirror_lock_file}" RELEASE)
 
     if(NOT res EQUAL 0)
@@ -895,7 +953,9 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
             else()
                 # if tags have not been acquired - load them
                 bpm_load_tag_list("${mirror_dir}" "${mirror_lock_file}" tags)
-
+                if(NOT tags)
+                    message(FATAL_ERROR "BPM [${PKG_NAME}]: Has no tags to checkout. Mirror: ${mirror_dir}")
+                endif()
                 # cache tags
                 set("BPM_REGISTRY_${PKG_NAME}_GIT_TAGS" "${tags}")
             endif()
@@ -907,7 +967,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                     # it is a named tag (not a version tag) or a commit hash
                     set(tag_or_hash "${PKG_VERSION_RANGE}")
                     file(LOCK "${mirror_lock_file}")
-                        execute_process(COMMAND git "--git-dir=${mirror_dir}" cat-file -e ${tag_or_hash}^{commit} RESULT_VARIABLE res )
+                        execute_process(COMMAND git --git-dir "${mirror_dir}" cat-file -e "${tag_or_hash}^{commit}" RESULT_VARIABLE res )
                     file(LOCK "${mirror_lock_file}" RELEASE)
                                         
                     if(res EQUAL 0)
@@ -927,9 +987,9 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                     
                     file(LOCK "${mirror_lock_file}")
                         if(BPM_VERBOSE)
-                            execute_process(COMMAND git "--git-dir=${mirror_dir}" fetch --tags --prune RESULT_VARIABLE res)
+                            execute_process(COMMAND git --git-dir "${mirror_dir}" fetch --tags --prune RESULT_VARIABLE res)
                         else()
-                            execute_process(COMMAND git "--git-dir=${mirror_dir}" fetch --tags --prune RESULT_VARIABLE res OUTPUT_QUIET ERROR_QUIET)
+                            execute_process(COMMAND git --git-dir "${mirror_dir}" fetch --tags --prune RESULT_VARIABLE res OUTPUT_QUIET ERROR_QUIET)
                         endif()
                     file(LOCK "${mirror_lock_file}" RELEASE)
 
@@ -941,6 +1001,9 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
 
                     # re-update tags after fetching
                     bpm_load_tag_list("${mirror_dir}" "${mirror_lock_file}" tags)
+                    if(NOT tags)
+                        message(FATAL_ERROR "BPM [${PKG_NAME}]: Has no tags to checkout. Mirror: ${mirror_dir}")
+                    endif()
 
                     # cache tags
                     set("BPM_REGISTRY_${PKG_NAME}_GIT_TAGS" "${tags}")
@@ -958,6 +1021,11 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
             else()
                 # is an actual range
                 bpm_filter_version_tags("${tags}" "${PKG_VERSION_RANGE}" tag_wheel)
+                if(NOT tag_wheel)
+                    list(GET IN_RANGE 0 version_lower)
+                    list(GET IN_RANGE 1 version_upper)
+                    message(FATAL_ERROR "BPM [${PKG_NAME}]: No tags in range ${version_lower}-${version_upper}. Mirror: ${mirror_dir}")
+                endif()
             endif()
 
             set(cached_tag_wheel_${PKG_NAME}_${temp_version_range_str} "${tag_wheel}")
@@ -970,7 +1038,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
         # load and cache metadata
         if(NOT DEFINED metadata_${PKG_NAME}_${top_version})
             file(LOCK "${mirror_lock_file}")
-                execute_process(COMMAND git "--git-dir=${mirror_dir}" cat-file blob "${top_version}:.bpm-registry" RESULT_VARIABLE res OUTPUT_VARIABLE metadata_tmp ERROR_QUIET)
+                execute_process(COMMAND git --git-dir "${mirror_dir}" cat-file blob "${top_version}:.bpm-registry" RESULT_VARIABLE res OUTPUT_VARIABLE metadata_tmp ERROR_QUIET)
             file(LOCK "${mirror_lock_file}" RELEASE)
 
             string(REPLACE "\r\n" "\n" metadata_tmp "${metadata_tmp}") # replace new lines windows to unix style
@@ -1403,7 +1471,7 @@ function(BPMMakeAvailable)
         get_property(PKG_OPTIONS GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS")
 
         file(LOCK "${lib_mirror_lock_file}")
-            execute_process(COMMAND git "--git-dir=${lib_mirror_dir}" rev-parse "${PKG_VERSION}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE PKG_GIT_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE)
+            execute_process(COMMAND git --git-dir "${lib_mirror_dir}" rev-parse "${PKG_VERSION}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE PKG_GIT_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE)
         file(LOCK "${lib_mirror_lock_file}" RELEASE)
 
         if(NOT res EQUAL 0)
