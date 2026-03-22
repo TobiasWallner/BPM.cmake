@@ -958,8 +958,10 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
             # build the version wheel for this package
             if(NOT mirror_${PKG_NAME}_up_to_date)
                 if(NOT EXISTS "${mirror_dir}/HEAD")
-                message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Cloning git repository: ${PKG_GIT_REPOSITORY} into: ${mirror_dir}")
-
+                    message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Cloning git repository: ${PKG_GIT_REPOSITORY} into: ${mirror_dir}")
+                    if(BPM_NO_DOWNLOAD)
+                        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Mirror does not exist: '${mirror_dir}'. Cannot download from '${PKG_GIT_REPOSITORY}', because `NO_DOWNLOAD` was provided.")
+                    endif()
                     file(LOCK "${mirror_lock_file}")
                         if(NOT EXISTS "${mirror_dir}/HEAD")
                             if(BPM_VERBOSE)
@@ -1017,31 +1019,35 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                 if(NOT contains)
                     message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch for updates")
                     
-                    file(LOCK "${mirror_lock_file}")
-                        if(BPM_VERBOSE)
-                            execute_process(COMMAND git --git-dir "${mirror_dir}" fetch --tags --prune RESULT_VARIABLE res)
-                        else()
-                            execute_process(COMMAND git --git-dir "${mirror_dir}" fetch --tags --prune RESULT_VARIABLE res OUTPUT_QUIET ERROR_QUIET)
+                    if(BPM_NO_DOWNLOAD)
+                        message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch - skipped due to `NO_DOWNLOAD`")
+                    else()
+                        file(LOCK "${mirror_lock_file}")
+                            if(BPM_VERBOSE)
+                                execute_process(COMMAND git --git-dir "${mirror_dir}" fetch --tags --prune RESULT_VARIABLE res)
+                            else()
+                                execute_process(COMMAND git --git-dir "${mirror_dir}" fetch --tags --prune RESULT_VARIABLE res OUTPUT_QUIET ERROR_QUIET)
+                            endif()
+                        file(LOCK "${mirror_lock_file}" RELEASE)
+
+                        if(res EQUAL 0)
+                            message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch for updates - success")
+                        else() 
+                            message(WARNING "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch for updates - failed")
                         endif()
-                    file(LOCK "${mirror_lock_file}" RELEASE)
 
-                    if(res EQUAL 0)
-                        message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch for updates - success")
-                    else() 
-                        message(WARNING "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch for updates - failed")
+                        # re-update tags after fetching
+                        bpm_load_tag_list("${mirror_dir}" "${mirror_lock_file}" tags)
+                        if(NOT tags)
+                            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Has no tags to checkout. Mirror: ${mirror_dir}")
+                        endif()
+    
+                        # cache tags
+                        set("BPM_REGISTRY_${PKG_NAME}_GIT_TAGS" "${tags}")
+
+                        # TODO: check if at least one element is contained --> error if not
+                        set(mirror_${PKG_NAME}_up_to_date TRUE)
                     endif()
-
-                    # re-update tags after fetching
-                    bpm_load_tag_list("${mirror_dir}" "${mirror_lock_file}" tags)
-                    if(NOT tags)
-                        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Has no tags to checkout. Mirror: ${mirror_dir}")
-                    endif()
-
-                    # cache tags
-                    set("BPM_REGISTRY_${PKG_NAME}_GIT_TAGS" "${tags}")
-
-                    # TODO: check if at least one element is contained --> error if not
-                    set(mirror_${PKG_NAME}_up_to_date TRUE)
                 endif()
             endif()
 
@@ -1419,7 +1425,7 @@ endfunction()
 #
 function(BPMMakeAvailable)
 
-    set(options VERBOSE)
+    set(options VERBOSE NO_DOWNLOAD)
     set(oneValueArgs)
     set(multiValueArgs)
     cmake_parse_arguments(BPM "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
