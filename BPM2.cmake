@@ -357,14 +357,11 @@ endfunction()
 # )
 # ```
 
-function(BPMAddInstallPackage)
+function(bpm_add_package_to_registry PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG_OPTIONS PKG_PACKAGES PKG_VERSION_RANGE TYPE)
+    if(NOT (("${TYPE}" STREQUAL "INSTALL") OR ("${TYPE}" STREQUAL "ADD_SUBDIR")))
+        message(FATAL_ERROR "BPM: Internal error: TYPE (${TYPE}) should be 'INSTALL' or 'ADD_SUBDIR'")
+    endif()
 
-    bpm_parse_arguments("${ARGN}"
-        PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG_BUILD_TYPE 
-        PKG_OPTIONS PKG_PACKAGES PKG_QUIET PKG_VERSION_RANGE)
-
-    # Create the Registry and delete the old one
-    # --------------------------------------------------------------------------------
     get_property(BPM_REGISTRY_ GLOBAL PROPERTY BPM_REGISTRY)
     if(BPM_REGISTRY_)
         # uniquely add the package name to the list
@@ -383,12 +380,13 @@ function(BPMAddInstallPackage)
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_TAG" "${PKG_GIT_TAG}") # TODO rename to constraint
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_REPOSITORY" "${PKG_GIT_REPOSITORY}")
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES" "${PKG_PACKAGES}")
+        set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_TYPE" "${TYPE}")
 
         # sort options
         list(SORT PKG_OPTIONS)
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS" "${PKG_OPTIONS}")
     else()
-        message(WARNING "BPM [${PROJECT_NAME}:${PKG_NAME}]: Defined twice in the same project")
+        #message(WARNING "BPM [${PROJECT_NAME}:${PKG_NAME}]: Defined twice in the same project")
 
         get_property(REGISTERED_GIT_REPOSITORY GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_REPOSITORY")
         if(NOT "${REGISTERED_GIT_REPOSITORY}" STREQUAL "${PKG_GIT_REPOSITORY}")
@@ -418,19 +416,43 @@ function(BPMAddInstallPackage)
         list(REMOVE_DUPLICATES JOINED_PACKAGES)
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES" "${JOINED_PACKAGES}")
 
+        # check if there is a type conflict
+        get_property(REGISTERED_TYPE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_TYPE")
+        if(NOT "${REGISTERED_TYPE}" STREQUAL "${TYPE}")
+            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Package added, onece as 'INSTALL' (find_package) and once as 'SOURCE' (add_subdirectory). Decide on one to prevent target-name conflicts.")
+        endif()
 
     endif()
 
     set_property(GLOBAL PROPERTY "BPM_${PKG_NAME}_ADDED" TRUE)
-    set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_INSTALL" TRUE)
+endfunction()
+
+
+function(BPMAddInstallPackage)
+
+    if(NOT PROJECT_IS_TOP_LEVEL)
+        return()
+    endif()
+
+    bpm_parse_arguments("${ARGN}"
+        PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG_BUILD_TYPE 
+        PKG_OPTIONS PKG_PACKAGES PKG_QUIET PKG_VERSION_RANGE)
+
+    bpm_add_package_to_registry("${PKG_NAME}" "${PKG_GIT_REPOSITORY}" "${PKG_GIT_TAG}" "${PKG_OPTIONS}" "${PKG_PACKAGES}" "${PKG_VERSION_RANGE}" "INSTALL")
 
 endfunction()
 
 function(BPMAddSourcePackage)
 
-    bpm_parse_arguments("${ARGN}" PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG_BUILD_TYPE PKG_OPTIONS PKG_PACKAGES PKG_QUIET PKG_VERSION_QUALIFIER PKG_V_MAJOR PKG_V_MINOR PKG_V_PATCH)
+    if(NOT PROJECT_IS_TOP_LEVEL)
+        return()
+    endif()
 
-    message(FATAL_ERROR "TODO: Continue developing here")
+    bpm_parse_arguments("${ARGN}"
+        PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG_BUILD_TYPE 
+        PKG_OPTIONS PKG_PACKAGES PKG_QUIET PKG_VERSION_RANGE)
+
+    bpm_add_package_to_registry("${PKG_NAME}" "${PKG_GIT_REPOSITORY}" "${PKG_GIT_TAG}" "${PKG_OPTIONS}" "${PKG_PACKAGES}" "${PKG_VERSION_RANGE}" "ADD_SUBDIR")
 
 endfunction()
 
@@ -751,6 +773,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
     set(decision_${decision_counter}_tag_wheel "")
     set(decision_${decision_counter}_git_tag "")
     set(decision_${decision_counter}_git_repo "")
+    set(decision_${decision_counter}_type "")
 
     # print current decision
     if(BPM_VERBOSE)
@@ -775,7 +798,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
         list(POP_FRONT todo_list pkg)
 
         set(options)
-        set(oneValueArgs NAME VERSION_RANGE GIT_TAG GIT_REPOSITORY)
+        set(oneValueArgs NAME VERSION_RANGE GIT_TAG GIT_REPOSITORY TYPE)
         set(multiValueArgs)
         separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
         cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
@@ -786,11 +809,12 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
 
         if(version_conflict) # if there was a version conflict
             if(decision_${decision_counter}_tag_wheel)
+                # get next version from tag wheel
                 list(POP_FRONT decision_${decision_counter}_tag_wheel top_version)
 
                 set(decision_${decision_counter}_version ${top_version})
                 
-                set(entry "NAME ${decision_${decision_counter}_pkg_name} VERSION ${top_version} GIT_TAG ${decision_${decision_counter}_git_tag} GIT_REPO ${decision_${decision_counter}_git_repo}")
+                set(entry "NAME ${decision_${decision_counter}_pkg_name} VERSION ${top_version} GIT_TAG ${decision_${decision_counter}_git_tag} GIT_REPO ${decision_${decision_counter}_git_repo} TYPE ${decision_${decision_counter}_type")
                 math(EXPR prev_decision_counter "${decision_counter} - 1")
                 set(decision_${decision_counter}_selected_list "${decision_${prev_decision_counter}_selected_list}")
                 LIST(APPEND decision_${decision_counter}_selected_list "${entry}")
@@ -828,6 +852,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                 set(decision_${decision_counter}_tag_wheel "")
                 set(decision_${decision_counter}_git_tag "")
                 set(decision_${decision_counter}_git_repo "")
+                set(decision_${decision_counter}_type "")
 
                 # pop
                 math(EXPR decision_counter "${decision_counter} - 1")
@@ -844,23 +869,27 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
         # check if the package is already in the selected list
         foreach(selected IN LISTS decision_${decision_counter}_selected_list)
             set(options)
-            set(oneValueArgs NAME VERSION GIT_TAG GIT_REPO)
+            set(oneValueArgs NAME VERSION GIT_TAG GIT_REPO TYPE)
             set(multiValueArgs)
             separate_arguments(selected_tokens UNIX_COMMAND "${selected}")
             cmake_parse_arguments(SEL "${options}" "${oneValueArgs}" "${multiValueArgs}" ${selected_tokens})
 
             if(("${SEL_NAME}" STREQUAL "${PKG_NAME}") OR ("${PKG_GIT_REPOSITORY}" STREQUAL "${SEL_GIT_REPO}"))
                 # repo conflict?
-
                 git_repo_equal("${PKG_GIT_REPOSITORY}" "${SEL_GIT_REPO}" are_repos_equal)
 
                 if(NOT are_repos_equal)
-                    message(FATAL_ERROR  "Repository conflict\n  Package: ${PKG_NAME}\n  Repository 1: ${PKG_GIT_REPOSITORY}\n  Repository 2: ${SEL_GIT_REPO}")
+                    message(FATAL_ERROR  "BPM [${PROJECT_NAME}:${PKG_NAME}]: Repository conflict: '${PKG_GIT_REPOSITORY}' vs '${SEL_GIT_REPO}'")
                 endif()
 
                 # package name conflict ? 
                 if(NOT "${PKG_NAME}" STREQUAL "${SEL_NAME}")
-                    message(FATAL_ERROR  "Package name conflict\n  Repository: ${PKG_GIT_REPOSITORY}\n  Package 1: ${PKG_NAME}\n  Package 2: ${SEL_NAME}")
+                    message(FATAL_ERROR  "BPM [${PROJECT_NAME}:${PKG_GIT_REPOSITORY}]: Package name conflict:  '${PKG_NAME}' vs  '${SEL_NAME}'")
+                endif()
+
+                # type conflict?
+                if(NOT "${PKG_TYPE}" STREQUAL "${SEL_TYPE}")
+                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Package type conflict: '${PKG_TYPE}' vs '${SEL_TYPE}'")
                 endif()
 
                 # check if the selected version is in the constraint
@@ -879,6 +908,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                     set(decision_${next_decision_counter}_range "${PKG_VERSION_RANGE}")
                     set(decision_${next_decision_counter}_git_tag "${PKG_GIT_TAG}")
                     set(decision_${next_decision_counter}_git_repo "${PKG_GIT_REPOSITORY}")
+                    set(decision_${decision_counter}_type "${PKG_TYPE}")
 
                     set(decision_counter "${next_decision_counter}")
 
@@ -1059,7 +1089,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
         math(EXPR next_decision_counter "${decision_counter} + 1")
         
 
-        set(entry "NAME ${PKG_NAME} VERSION ${top_version} GIT_TAG ${PKG_GIT_TAG} GIT_REPO ${PKG_GIT_REPOSITORY}")
+        set(entry "NAME ${PKG_NAME} VERSION ${top_version} GIT_TAG ${PKG_GIT_TAG} GIT_REPO ${PKG_GIT_REPOSITORY} TYPE ${PKG_TYPE}")
 
         set(decision_${next_decision_counter}_todo_list "${todo_list}")
         set(decision_${next_decision_counter}_selected_list "${decision_${decision_counter}_selected_list}")
@@ -1070,6 +1100,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
         set(decision_${next_decision_counter}_range "${PKG_VERSION_RANGE}")
         set(decision_${next_decision_counter}_git_tag "${PKG_GIT_TAG}")
         set(decision_${next_decision_counter}_git_repo "${PKG_GIT_REPOSITORY}")
+        set(decision_${decision_counter}_type "${PKG_TYPE}")
 
         set(decision_counter "${next_decision_counter}")
 
@@ -1193,7 +1224,7 @@ function(bpm_clone_from_mirror lib_name library_mirror_dir lib_src_dir git_tag l
                     if(BPM_VERBOSE)
                         execute_process(COMMAND git clone --reference "${library_mirror_dir}" --no-checkout "${library_mirror_dir}" "${lib_src_dir}" -c advice.detachedHead=false RESULT_VARIABLE res)
                     else()
-                        execute_process(COMMAND git clone --reference "${library_mirror_dir}" --no-checkout "${library_mirror_dir}" "${lib_src_dir}" -c advice.detachedHead=false RESULT_VARIABLE res OUTPUT_QUIET)
+                        execute_process(COMMAND git clone --reference "${library_mirror_dir}" --no-checkout "${library_mirror_dir}" "${lib_src_dir}" -c advice.detachedHead=false RESULT_VARIABLE res OUTPUT_QUIET ERROR_QUIET)
                     endif()
                     if(NOT res EQUAL 0)
                         message(FATAL_ERROR "BPM [${PROJECT_NAME}:${lib_name}]: Failed to clone mirror '${library_mirror_dir}' into source dir '${lib_src_dir}'.")
@@ -1202,7 +1233,7 @@ function(bpm_clone_from_mirror lib_name library_mirror_dir lib_src_dir git_tag l
                     if(BPM_VERBOSE)
                         execute_process(COMMAND git -C "${lib_src_dir}" checkout "${git_tag}" RESULT_VARIABLE res )
                     else()
-                        execute_process(COMMAND git -C "${lib_src_dir}" checkout "${git_tag}" RESULT_VARIABLE res OUTPUT_QUIET)
+                        execute_process(COMMAND git -C "${lib_src_dir}" checkout "${git_tag}" RESULT_VARIABLE res OUTPUT_QUIET ERROR_QUIET)
                     endif()
                     if(NOT res EQUAL 0)
                         message(FATAL_ERROR "BPM [${PROJECT_NAME}:${lib_name}]: Failed to checkout '${git_tag}' in source dir '${lib_src_dir}'.")
@@ -1265,11 +1296,11 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
         list(APPEND cmake_disable_test_example_flags "-D${flag}=OFF")
     endforeach()
 
-    set(toolchain_args "")
+    set(toolchain_args)
     if(CMAKE_TOOLCHAIN_FILE)
-        list(APPEND toolchain_args "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
+        set(toolchain_args "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
     else()
-        list(APPEND toolchain_args
+        set(toolchain_args
             "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
             "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
         )
@@ -1286,7 +1317,7 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
                 set(dependencies_arg "-DBPM_DEPENDENCY_SOLUTION=${CMAKE_BINARY_DIR}/bpm-dependency-solution.cmake")
                 set(bpm_cache_arg "-DBPM_CACHE=${BPM_CACHE_DIR}")
             endif()
-
+            
             # TODO: Optimisation: skip instead of re-configuring
             execute_process(
                 COMMAND ${CMAKE_COMMAND}
@@ -1405,17 +1436,18 @@ function(BPMMakeAvailable)
         get_property(VERSION_RANGE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_VERSION_RANGE")
         get_property(GIT_TAG GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_TAG")
         get_property(GIT_REPOSITORY GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_REPOSITORY")
+        get_property(TYPE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_TYPE")
 
         string(REPLACE ";" "-" SAFE_VERSION_RANGE "${VERSION_RANGE}")
 
         string(APPEND registry_content
             "NAME ${PKG_NAME} VERSION_RANGE ${SAFE_VERSION_RANGE} "
-            "GIT_TAG ${GIT_TAG} GIT_REPOSITORY ${GIT_REPOSITORY} INSTALL ${pkg_install};"
+            "GIT_TAG ${GIT_TAG} GIT_REPOSITORY ${GIT_REPOSITORY} TYPE ${TYPE};"
         )
         
         string(APPEND registry_file_content
             "NAME ${PKG_NAME} VERSION_RANGE ${SAFE_VERSION_RANGE} "
-            "GIT_TAG ${GIT_TAG} GIT_REPOSITORY ${GIT_REPOSITORY}\n"
+            "GIT_TAG ${GIT_TAG} GIT_REPOSITORY ${GIT_REPOSITORY} TYPE ${TYPE}\n"
         )
     endforeach()
     
@@ -1463,7 +1495,16 @@ function(BPMMakeAvailable)
     # Add package with `add_subdirectory` or install and add with `find_package`
     # ------------------------------------------------------------------------------
 
+    
     foreach(pkg IN LISTS solution)
+
+        # Prevent double adding through subdirectory packages
+        get_property(PKG_MADE_AVAILABLE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_MADE_AVAILABLE")
+        if(PKG_MADE_AVAILABLE)
+            continue()
+        endif()
+        set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_MADE_AVAILABLE" TRUE)
+
         set(options)
         set(oneValueArgs NAME VERSION GIT_REPO)
         set(multiValueArgs)
@@ -1547,8 +1588,10 @@ function(BPMMakeAvailable)
             file(WRITE "${manifest_file_path}" "${manifest}")
         endif()
 
-        get_property("BPM_${PKG_NAME}_INSTALL" GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_INSTALL")
-        if(BPM_${PKG_NAME}_INSTALL)
+        get_property("BPM_${PKG_NAME}_TYPE" GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_TYPE")
+        if("${BPM_${PKG_NAME}_TYPE}" STREQUAL "INSTALL")
+            message(STATUS "BPM [${PROJECT_NAME}]: Adding Install: ${PKG_NAME}@${PKG_VERSION} : ${PKG_GIT_REPO}")
+
             get_property(REGISTERED_PACKAGES GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES")
 
             bpm_try_find_packages("${PKG_NAME}" "${REGISTERED_PACKAGES}" "${lib_install_dir}" all_packages_found)
@@ -1572,15 +1615,47 @@ function(BPMMakeAvailable)
 
                 # try to make the packagse available
                 bpm_try_find_packages("${PKG_NAME}" "${REGISTERED_PACKAGES}" "${lib_install_dir}" all_packages_found)
+
+                # delete source and build directory
+                file(LOCK "${lib_build_lock_file}")
+                    file(LOCK "${lib_src_lock_file}")
+                        message(STATUS "BPM [${PROJECT_NAME}:${BPM_NAME}] Cleaning: '${lib_src_dir}' + '${lib_build_dir}'")
+                        file(REMOVE_RECURSE "${lib_src_dir}")
+                        file(REMOVE_RECURSE "${lib_build_dir}")
+                        message(STATUS "BPM [${PROJECT_NAME}:${BPM_NAME}] Cleaning - done")
+                    file(LOCK "${lib_src_lock_file}" RELEASE)
+                file(LOCK "${lib_build_lock_file}" RELEASE)
+
                 if(NOT all_packages_found)
                     message(FATAL_ERROR "BPM [${PROJECT_NAME}:${BPM_NAME}]: Find package - failed after (re-)install")
                 endif()
             endif()
 
-        elseif(BPM_${PKG_NAME}_ADD_SUBDIR)
-            message(STATUS "Adding Subdirectory: ${PKG_NAME}@${PKG_VERSION} : ${PKG_GIT_REPO}")
+        elseif("${BPM_${PKG_NAME}_TYPE}" STREQUAL "ADD_SUBDIR")
 
-            message(FATAL_ERROR "TODO: CONTINUE FROM HERE")
+            message(STATUS "BPM [${PROJECT_NAME}]: Adding Subdirectory: ${PKG_NAME}@${PKG_VERSION} : ${PKG_GIT_REPO}")
+
+            # clone mirror into source dir
+            bpm_clone_from_mirror("${PKG_NAME}" "${lib_mirror_dir}" "${lib_src_dir}" "${PKG_VERSION}" "${lib_mirror_lock_file}" "${lib_src_lock_file}")
+
+            # provide options
+            foreach(opt IN LISTS PKG_OPTIONS)
+                string(REPLACE "=" ";" opt_list "${opt}")
+                list(GET opt 0 opt_name)
+                list(GET opt 0 opt_value)
+                set("${opt_name}" "${opt_value}")
+            endforeach()
+
+            # provide solution
+            set(BPM_DEPENDENCY_SOLUTION "${CMAKE_BINARY_DIR}/bpm-dependency-solution.cmake")
+
+            # provide cache dir
+            set(BPM_CACHE "${BPM_CACHE_DIR}")
+
+            message(STATUS "add_subdirectory(${lib_src_dir} ${lib_build_dir})")
+            add_subdirectory("${lib_src_dir}" "${lib_build_dir}")
+        else()
+            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Internal error. Unknown TYPE '${BPM_${PKG_NAME}_TYPE}'. Shoule be 'INSTALL' or 'ADD_SUBDIR'")
         endif()
     endforeach()
 
@@ -1591,7 +1666,7 @@ endfunction()
 #                   Install
 # -----------------------------------------------------
 
-function(BPMCreatePackage)
+function(BPMCreateInstallPackage)
     include(CMakePackageConfigHelpers)
 
     if(ARGC EQUAL 1)
