@@ -1658,7 +1658,12 @@ function(BPMMakeAvailable)
             # provide cache dir
             set(BPM_CACHE "${BPM_CACHE_DIR}")
 
-            message(STATUS "add_subdirectory(${lib_src_dir} ${lib_build_dir})")
+            # disable test and example build targets if possible
+            bpm_find_test_example_options_r("${lib_src_dir}" test_example_options)
+            foreach(flag ${test_example_options})
+                set(${flag} OFF)
+            endforeach()
+
             add_subdirectory("${lib_src_dir}" "${lib_build_dir}")
         else()
             message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Internal error. Unknown TYPE '${BPM_${PKG_NAME}_TYPE}'. Shoule be 'INSTALL' or 'ADD_SUBDIR'")

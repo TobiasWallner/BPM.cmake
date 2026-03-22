@@ -4,6 +4,41 @@ BPM - Binary Package Manager
 BPM is a CMake-native package and dependency manager.
 Intended for everyone who likes to program in C and C++ and cannot bother to learn more than just CMake to manage their projects.
 
+Get BPM.cmake
+--------------
+In your project do:
+
+for Linux:
+```bash
+mkdir cmake -p
+curl -o cmake/BPM.cmake https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.3.0/BPM.cmake -L
+```
+
+for Windows:
+```powershell
+mkdir cmake
+Invoke-WebRequest -Uri "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.3.0/BPM.cmake" -OutFile "cmake/BPM.cmake"
+```
+
+Usage
+-----
+
+Example:
+```cmake
+# ---- Include BPM -------------------------------------------------------
+include(cmake/BPM.cmake)
+
+# ---- Declare Installable Dependencies ----------------------------------
+BPMAddInstallPackage("https://github.com/fmtlib/fmt@>=10.0.0")
+BPMAddInstallPackage("https://github.com/gabime/spdlog@~1.17.0")
+
+# ---- Declare Source Dependencies ---------------------------------------
+BPMAddSourcePackage("https://github.com/stephenberry/glaze"@^v7.2.1)
+
+# ---- Make packages available -------------------------------------------
+BPMMakeAvailable()
+```
+
 Cool features:
 --------------
 - Extremely small footprint in your `CMakeLists.txt`
