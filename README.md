@@ -1,7 +1,10 @@
-BPM - Binary Package Manager
-============================
+BPM
+======
 
-BPM is a **CMake-native** package and **dependency manager**.
+Experimental
+
+BPM.cmake is a **CMake-native dependency solver and package bootstrapper** for CMake-based git repositories.
+It resolves version constraints across your dependency graph, caches builds reproducibly, and can integrate dependencies either via `find_package()` or `add_subdirectory()`.
 
 Accepts **arbitrary git repositories** as libraries, as long as they have a `CMakeLists.txt` to build them.
 
@@ -30,7 +33,7 @@ In your project do:
 
 for Linux:
 ```bash
-mkdir cmake -p
+mkdir -p cmake
 curl -o cmake/BPM.cmake https://github.com/TobiasWallner/BPM.cmake/releases/download/0.4.0/BPM.cmake -L
 ```
 
@@ -60,7 +63,7 @@ include(cmake/BPM.cmake)
 BPMAddInstallPackage("https://github.com/fmtlib/fmt@>=10.0.0")
 
 # ---- Declare Source Dependencies ---------------------------------------
-BPMAddSourcePackage("https://github.com/stephenberry/glaze"@^v7.2.1)
+BPMAddSourcePackage("https://github.com/stephenberry/glaze@^v7.2.1")
 
 # ---- Make packages available -------------------------------------------
 BPMMakeAvailable()
@@ -88,7 +91,7 @@ target_link_libraries(main_lib PRIVATE
 )
 
 # ---- Create Installable Library ------------------------------------------
-BPMCreateInstallPackage(greet)
+BPMCreateInstallPackage(main_lib)
 ```
 
 Functions
@@ -188,7 +191,7 @@ If you need more control you can use the following long form instead:
 BPMAddInstallPackage(
   NAME <name>
   PACKAGES <list of packages>
-  GIT_REPOSITOR <path to repo>
+  GIT_REPOSITORY <path to repo>
   GIT_TAG <constraint/version/tag/commit>
   OPTIONS <optional-list-of-options>
 )
@@ -197,7 +200,7 @@ BPMAddInstallPackage(
 ```cmake
 BPMAddSourcePackage(
   NAME <name>
-  GIT_REPOSITOR <path to repo>
+  GIT_REPOSITORY <path to repo>
   GIT_TAG <constraint/version/tag/commit>
   OPTIONS <optional-list-of-options>
 )
@@ -205,7 +208,7 @@ BPMAddSourcePackage(
 
 Required:
 - `NAME`: The name of the package/library
-- `GIT_REPOSITOR`: Path to the git repository
+- `GIT_REPOSITORY`: Path to the git repository
 - `GIT_TAG`: Provide the git tag, version, version constraints, a commit-hash here.
 
 Optional:
@@ -244,7 +247,7 @@ BPM will cache repository mirrors, sources, builds and installations.
 The default cache, if none is provided, is inside the build directory `${CMAKE_BINARY_DIR}/_deps`.
 
 However, one can provide a different cache directory directory by:
-  - Setting the environment variable `export BPM_CACH=path/to/cache`
+  - Setting the environment variable `export BPM_CACHE=path/to/cache`
   - Setting the cmake configuration flag `-DBPM_CACHE=path/to/cache` (has precidence over environment variables)
 
 That way the same cache can be used for multiple projects which avoids re-downloading and re-building and re-installing the same library over and over again for every project. 

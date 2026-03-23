@@ -121,7 +121,7 @@ function(bpm_parse_version_string in_pkg_name INPUT out_version_range)
             set(${out_version_range} "${git_tag}" PARENT_SCOPE)
             return()
         else()
-            message(FALTAL_ERROR "BPM [${PROJECT_NAME}:${in_pkg_name}]: Could not parse version string ${INPUT}")
+            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${in_pkg_name}]: Could not parse version string ${INPUT}")
         endif()
     endif()
 
@@ -200,9 +200,9 @@ endfunction()
 function(bpm_parse_short_dependency INPUT out_git_repo out_name out_tag)
 
     # ------------------------------------------------------------
-    # Split into FULL_PATH and optional VERSION_PART using '@'
+    # Split into FULL_PATH and optional VERSION_PART using '#'
     # ------------------------------------------------------------
-    string(REGEX MATCH "^([^@]+)(@(.+))?$" _ "${INPUT}")
+    string(REGEX MATCH "^([^#]+)(#(.+))?$" _ "${INPUT}")
 
     set(FULL_PATH "${CMAKE_MATCH_1}")
     if(BPM_VERBOSE)
@@ -234,7 +234,7 @@ function(bpm_parse_short_dependency INPUT out_git_repo out_name out_tag)
     endif()
 
     if(NOT VERSION_PART)
-        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${NAME}]: No version string provided. Expected: 'path/name@version'")
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${NAME}]: No version string provided. Expected: 'path/name#version'")
     endif()
 
     # ------------------------------------------------------------
@@ -329,11 +329,11 @@ function(bpm_version_range_intersection in_version_range_a in_version_range_b ou
     set(${out_version_range} "${lower_bound}" "${upper_bound}" PARENT_SCOPE)
 endfunction()
 
-# @brief Creates a package registry and resolves versions
+# #brief Creates a package registry and resolves versions
 #
 # Accepts shorthand reposiotories like: 
 # ```
-# https://github.com/org/repo@1.2.3
+# https://github.com/org/repo#1.2.3
 # ```
 # or:
 # ```
@@ -571,7 +571,7 @@ function(bpm_is_version_in_range in_pkg_name in_mirror in_mirror_lock_file in_ta
         # so in_range is not version
         # compare git hashes for equality
 
-        file(LOCK "${mirror_lock_file}")
+        file(LOCK "${in_mirror_lock_file}")
             execute_process(COMMAND git --git-dir "${in_mirror}" rev-parse "${in_tag}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE PKG_GIT_COMMIT_A OUTPUT_STRIP_TRAILING_WHITESPACE)
             if(NOT res EQUAL 0)
                 message(FATAL_ERROR "BPM [${PROJECT_NAME}:${in_pkg_name}]: Cannot convert tag: ${in_tag} to commit-hash")
@@ -585,7 +585,7 @@ function(bpm_is_version_in_range in_pkg_name in_mirror in_mirror_lock_file in_ta
                     message(FATAL_ERROR "BPM [${PROJECT_NAME}:${in_pkg_name}]: Cannot convert tag: '${in_range}' to commit-hash")
                 endif()
             endif()
-        file(LOCK "${mirror_lock_file}" RELEASE)
+        file(LOCK "${in_mirror_lock_file}" RELEASE)
 
         if("${PKG_GIT_COMMIT_A}" STREQUAL "${PKG_GIT_COMMIT_B}")
             message(STATUS "out: true")
@@ -625,7 +625,7 @@ function(bpm_is_version_in_range in_pkg_name in_mirror in_mirror_lock_file in_ta
             return()
         endif()
     else()
-        file(LOCK "${mirror_lock_file}")
+        file(LOCK "${in_mirror_lock_file}")
             execute_process(COMMAND git --git-dir "${in_mirror}" rev-parse "${in_tag}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE tag_commit OUTPUT_STRIP_TRAILING_WHITESPACE)
             if(NOT res EQUAL 0)
                 message(FATAL_ERROR "BPM [${PROJECT_NAME}:${in_pkg_name}]: Cannot convert tag: '${in_tag}' to commit-hash")
@@ -639,7 +639,7 @@ function(bpm_is_version_in_range in_pkg_name in_mirror in_mirror_lock_file in_ta
                     message(FATAL_ERROR "BPM [${PROJECT_NAME}:${in_pkg_name}]: Cannot convert tag: '${range_lower}' to commit-hash")
                 endif()
             endif()   
-        file(LOCK "${mirror_lock_file}" RELEASE)
+        file(LOCK "${in_mirror_lock_file}" RELEASE)
 
         execute_process(COMMAND git --git-dir "${in_mirror}" merge-base --is-ancestor "${range_low_commit}" "${tag_commit}" RESULT_VARIABLE res)
         
@@ -1476,7 +1476,7 @@ function(BPMMakeAvailable)
             separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
             cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
 
-            message(STATUS "BPM [${PROJECT_NAME}]: Resolved: ${PKG_NAME}@${PKG_VERSION} : ${PKG_GIT_REPO}")
+            message(STATUS "BPM [${PROJECT_NAME}]: Resolved: ${PKG_NAME}#${PKG_VERSION} : ${PKG_GIT_REPO}")
             
         endforeach()
 
@@ -1585,7 +1585,7 @@ function(BPMMakeAvailable)
 
         get_property("BPM_${PKG_NAME}_TYPE" GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_TYPE")
         if("${BPM_${PKG_NAME}_TYPE}" STREQUAL "INSTALL")
-            message(STATUS "BPM [${PROJECT_NAME}]: Adding Install: ${PKG_NAME}@${PKG_VERSION} : ${PKG_GIT_REPO}")
+            message(STATUS "BPM [${PROJECT_NAME}]: Adding Install: ${PKG_NAME}#${PKG_VERSION} : ${PKG_GIT_REPO}")
 
             get_property(REGISTERED_PACKAGES GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES")
 
@@ -1628,7 +1628,7 @@ function(BPMMakeAvailable)
 
         elseif("${BPM_${PKG_NAME}_TYPE}" STREQUAL "ADD_SUBDIR")
 
-            message(STATUS "BPM [${PROJECT_NAME}]: Adding Subdirectory: ${PKG_NAME}@${PKG_VERSION} : ${PKG_GIT_REPO}")
+            message(STATUS "BPM [${PROJECT_NAME}]: Adding Subdirectory: ${PKG_NAME}#${PKG_VERSION} : ${PKG_GIT_REPO}")
 
             # clone mirror into source dir
             bpm_clone_from_mirror("${PKG_NAME}" "${lib_mirror_dir}" "${lib_src_dir}" "${PKG_VERSION}" "${lib_mirror_lock_file}" "${lib_src_lock_file}")
@@ -1637,7 +1637,7 @@ function(BPMMakeAvailable)
             foreach(opt IN LISTS PKG_OPTIONS)
                 string(REPLACE "=" ";" opt_list "${opt}")
                 list(GET opt 0 opt_name)
-                list(GET opt 0 opt_value)
+                list(GET opt 1 opt_value)
                 set("${opt_name}" "${opt_value}")
             endforeach()
 
@@ -1649,7 +1649,7 @@ function(BPMMakeAvailable)
 
             # disable test and example build targets if possible
             bpm_find_test_example_options_r("${lib_src_dir}" test_example_options)
-            foreach(flag ${test_example_options})
+            foreach(flag IN LISTS test_example_options)
                 set(${flag} OFF)
             endforeach()
 
