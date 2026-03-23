@@ -200,9 +200,9 @@ endfunction()
 function(bpm_parse_short_dependency INPUT out_git_repo out_name out_tag)
 
     # ------------------------------------------------------------
-    # Split into FULL_PATH and optional VERSION_PART using '@'
+    # Split into FULL_PATH and optional VERSION_PART using '#'
     # ------------------------------------------------------------
-    string(REGEX MATCH "^([^@]+)(@(.+))?$" _ "${INPUT}")
+    string(REGEX MATCH "^([^#]+)(#(.+))?$" _ "${INPUT}")
 
     set(FULL_PATH "${CMAKE_MATCH_1}")
     if(BPM_VERBOSE)
@@ -234,7 +234,7 @@ function(bpm_parse_short_dependency INPUT out_git_repo out_name out_tag)
     endif()
 
     if(NOT VERSION_PART)
-        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${NAME}]: No version string provided. Expected: 'path/name@version'")
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${NAME}]: No version string provided. Expected: 'path/name#version'")
     endif()
 
     # ------------------------------------------------------------
@@ -329,11 +329,11 @@ function(bpm_version_range_intersection in_version_range_a in_version_range_b ou
     set(${out_version_range} "${lower_bound}" "${upper_bound}" PARENT_SCOPE)
 endfunction()
 
-# @brief Creates a package registry and resolves versions
+# #brief Creates a package registry and resolves versions
 #
 # Accepts shorthand reposiotories like: 
 # ```
-# https://github.com/org/repo@1.2.3
+# https://github.com/org/repo#1.2.3
 # ```
 # or:
 # ```
@@ -1476,7 +1476,7 @@ function(BPMMakeAvailable)
             separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
             cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
 
-            message(STATUS "BPM [${PROJECT_NAME}]: Resolved: ${PKG_NAME}@${PKG_VERSION} : ${PKG_GIT_REPO}")
+            message(STATUS "BPM [${PROJECT_NAME}]: Resolved: ${PKG_NAME}#${PKG_VERSION} : ${PKG_GIT_REPO}")
             
         endforeach()
 
@@ -1585,7 +1585,7 @@ function(BPMMakeAvailable)
 
         get_property("BPM_${PKG_NAME}_TYPE" GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_TYPE")
         if("${BPM_${PKG_NAME}_TYPE}" STREQUAL "INSTALL")
-            message(STATUS "BPM [${PROJECT_NAME}]: Adding Install: ${PKG_NAME}@${PKG_VERSION} : ${PKG_GIT_REPO}")
+            message(STATUS "BPM [${PROJECT_NAME}]: Adding Install: ${PKG_NAME}#${PKG_VERSION} : ${PKG_GIT_REPO}")
 
             get_property(REGISTERED_PACKAGES GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES")
 
@@ -1628,7 +1628,7 @@ function(BPMMakeAvailable)
 
         elseif("${BPM_${PKG_NAME}_TYPE}" STREQUAL "ADD_SUBDIR")
 
-            message(STATUS "BPM [${PROJECT_NAME}]: Adding Subdirectory: ${PKG_NAME}@${PKG_VERSION} : ${PKG_GIT_REPO}")
+            message(STATUS "BPM [${PROJECT_NAME}]: Adding Subdirectory: ${PKG_NAME}#${PKG_VERSION} : ${PKG_GIT_REPO}")
 
             # clone mirror into source dir
             bpm_clone_from_mirror("${PKG_NAME}" "${lib_mirror_dir}" "${lib_src_dir}" "${PKG_VERSION}" "${lib_mirror_lock_file}" "${lib_src_lock_file}")
