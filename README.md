@@ -231,6 +231,11 @@ Optional Flags:
 
 - `VERBOSE`: Will print intermediary steps and results, especially of the version solving process
 
+`BPMMakeAvailable()` Also generates the file `.bpm-registry` in the projects source directory. 
+It contains all the packages/libraries that this library needs (aka. that have been added with `BPMAddInstallPackage()` or `BPMAddSourcePackage()`). This file is needed another project that uses BPM and adds your project as a dependency.
+Add that file to your git repository.
+This file will only change if you change the added packages. 
+
 Caching
 -------
 
