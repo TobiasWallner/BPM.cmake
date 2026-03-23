@@ -571,7 +571,7 @@ function(bpm_is_version_in_range in_pkg_name in_mirror in_mirror_lock_file in_ta
         # so in_range is not version
         # compare git hashes for equality
 
-        file(LOCK "${mirror_lock_file}")
+        file(LOCK "${in_mirror_lock_file}")
             execute_process(COMMAND git --git-dir "${in_mirror}" rev-parse "${in_tag}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE PKG_GIT_COMMIT_A OUTPUT_STRIP_TRAILING_WHITESPACE)
             if(NOT res EQUAL 0)
                 message(FATAL_ERROR "BPM [${PROJECT_NAME}:${in_pkg_name}]: Cannot convert tag: ${in_tag} to commit-hash")
@@ -585,7 +585,7 @@ function(bpm_is_version_in_range in_pkg_name in_mirror in_mirror_lock_file in_ta
                     message(FATAL_ERROR "BPM [${PROJECT_NAME}:${in_pkg_name}]: Cannot convert tag: '${in_range}' to commit-hash")
                 endif()
             endif()
-        file(LOCK "${mirror_lock_file}" RELEASE)
+        file(LOCK "${in_mirror_lock_file}" RELEASE)
 
         if("${PKG_GIT_COMMIT_A}" STREQUAL "${PKG_GIT_COMMIT_B}")
             message(STATUS "out: true")
@@ -625,7 +625,7 @@ function(bpm_is_version_in_range in_pkg_name in_mirror in_mirror_lock_file in_ta
             return()
         endif()
     else()
-        file(LOCK "${mirror_lock_file}")
+        file(LOCK "${in_mirror_lock_file}")
             execute_process(COMMAND git --git-dir "${in_mirror}" rev-parse "${in_tag}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE tag_commit OUTPUT_STRIP_TRAILING_WHITESPACE)
             if(NOT res EQUAL 0)
                 message(FATAL_ERROR "BPM [${PROJECT_NAME}:${in_pkg_name}]: Cannot convert tag: '${in_tag}' to commit-hash")
@@ -639,7 +639,7 @@ function(bpm_is_version_in_range in_pkg_name in_mirror in_mirror_lock_file in_ta
                     message(FATAL_ERROR "BPM [${PROJECT_NAME}:${in_pkg_name}]: Cannot convert tag: '${range_lower}' to commit-hash")
                 endif()
             endif()   
-        file(LOCK "${mirror_lock_file}" RELEASE)
+        file(LOCK "${in_mirror_lock_file}" RELEASE)
 
         execute_process(COMMAND git --git-dir "${in_mirror}" merge-base --is-ancestor "${range_low_commit}" "${tag_commit}" RESULT_VARIABLE res)
         
@@ -1637,7 +1637,7 @@ function(BPMMakeAvailable)
             foreach(opt IN LISTS PKG_OPTIONS)
                 string(REPLACE "=" ";" opt_list "${opt}")
                 list(GET opt 0 opt_name)
-                list(GET opt 0 opt_value)
+                list(GET opt 1 opt_value)
                 set("${opt_name}" "${opt_value}")
             endforeach()
 
@@ -1649,7 +1649,7 @@ function(BPMMakeAvailable)
 
             # disable test and example build targets if possible
             bpm_find_test_example_options_r("${lib_src_dir}" test_example_options)
-            foreach(flag ${test_example_options})
+            foreach(flag IN LISTS test_example_options)
                 set(${flag} OFF)
             endforeach()
 
