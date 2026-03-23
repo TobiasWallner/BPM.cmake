@@ -247,11 +247,11 @@ function(bpm_parse_short_dependency INPUT out_git_repo out_name out_tag)
 
 endfunction()
 
-function(bpm_parse_arguments INPUT out_name out_repo out_tag out_build_type out_options out_packages out_quiet out_version)
+function(bpm_parse_arguments INPUT out_name out_repo out_tag out_options out_packages out_version)
 
     # Parse arguments in long form
     set(options QUIET)
-    set(oneValueArgs NAME GIT_REPOSITORY GIT_TAG BUILD_TYPE)
+    set(oneValueArgs NAME GIT_REPOSITORY GIT_TAG)
     set(multiValueArgs PACKAGES OPTIONS)
     cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${INPUT})
 
@@ -284,21 +284,10 @@ function(bpm_parse_arguments INPUT out_name out_repo out_tag out_build_type out_
     else()
         bpm_parse_version_string("${PKG_NAME}" "${PKG_GIT_TAG}" PKG_VERSION)
     endif()
-
-    if(NOT PKG_BUILD_TYPE)
-        set(PKG_BUILD_TYPE Release)
-    endif()
-
-    if(PKG_QUIET)
-        set(${out_quiet} ON PARENT_SCOPE)
-    else()
-        set(${out_quiet} OFF PARENT_SCOPE)
-    endif()
       
     set(${out_name} ${PKG_NAME} PARENT_SCOPE)
     set(${out_repo} ${PKG_GIT_REPOSITORY} PARENT_SCOPE)
     set(${out_tag} ${PKG_GIT_TAG} PARENT_SCOPE)
-    set(${out_build_type} ${PKG_BUILD_TYPE} PARENT_SCOPE)
     set(${out_version_qualifier} ${PKG_VERSION_QUALIFIER} PARENT_SCOPE)
     set(${out_version} ${PKG_VERSION} PARENT_SCOPE)
     set(${out_options} ${PKG_OPTIONS} PARENT_SCOPE)
@@ -435,8 +424,8 @@ function(BPMAddInstallPackage)
     endif()
 
     bpm_parse_arguments("${ARGN}"
-        PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG_BUILD_TYPE 
-        PKG_OPTIONS PKG_PACKAGES PKG_QUIET PKG_VERSION_RANGE)
+        PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG 
+        PKG_OPTIONS PKG_PACKAGES PKG_VERSION_RANGE)
 
     bpm_add_package_to_registry("${PKG_NAME}" "${PKG_GIT_REPOSITORY}" "${PKG_GIT_TAG}" "${PKG_OPTIONS}" "${PKG_PACKAGES}" "${PKG_VERSION_RANGE}" "INSTALL")
 
@@ -449,8 +438,8 @@ function(BPMAddSourcePackage)
     endif()
 
     bpm_parse_arguments("${ARGN}"
-        PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG_BUILD_TYPE 
-        PKG_OPTIONS PKG_PACKAGES PKG_QUIET PKG_VERSION_RANGE)
+        PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG 
+        PKG_OPTIONS PKG_PACKAGES PKG_VERSION_RANGE)
 
     bpm_add_package_to_registry("${PKG_NAME}" "${PKG_GIT_REPOSITORY}" "${PKG_GIT_TAG}" "${PKG_OPTIONS}" "${PKG_PACKAGES}" "${PKG_VERSION_RANGE}" "ADD_SUBDIR")
 
