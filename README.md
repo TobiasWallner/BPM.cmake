@@ -1,6 +1,8 @@
 BPM
 ======
 
+Experimental
+
 BPM.cmake is a **CMake-native dependency solver and package bootstrapper** for CMake-based git repositories.
 It resolves version constraints across your dependency graph, caches builds reproducibly, and can integrate dependencies either via `find_package()` or `add_subdirectory()`.
 
