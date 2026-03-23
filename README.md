@@ -1,8 +1,28 @@
 BPM - Binary Package Manager
 ============================
 
-BPM is a CMake-native package and dependency manager.
-Intended for everyone who likes to program in C and C++ and cannot bother to learn more than just CMake to manage their projects.
+BPM is a **CMake-native** package and **dependency manager**.
+
+Accepts **arbitrary git repositories** as libraries, as long as they have a `CMakeLists.txt` to build them.
+
+BPM is capable of understanding **semver versions** (1.2.3 or v1.2.3) and can infer them from git tags. Together with the following **version constraints**: 
+- `>=`: Greater or equal versions
+- `^`: Compatible version (has to have the same leading non-zero number and be greater or equal)
+- `~`: Patched version (Allows greater or equal patched versions)
+- `=`: Exact version (default if nothing is provided)
+- `<`: Smaller versions, provides an upper bound
+
+Also supports arbitrary git-tags or git-commit-hashes.
+
+BPM will record all libraries from all included packages recursively, create and **solve the version graph**. BPM is capable of solving **Diamond dependencies**.
+
+Packages can be integrated either:
+  - trough **installations** (internally uses `find_package`), which prevents polluting the global namespace and mitigates target clashes.
+  - or through **source integrations** (internally uses `add_subdirectory`), in case the repository/library is not `cmake --install`-able.
+
+Sources, builds and installations of packages/libraries/repositories are **chached** and seperated by **manifests** that contain all relevant environment and build variables for **deterministic builds**.
+
+BPM is further capable of inspecting `CMakeLists.txt` and automatically **disabling test and example targets**.
 
 Get BPM.cmake
 --------------
@@ -11,96 +31,125 @@ In your project do:
 for Linux:
 ```bash
 mkdir cmake -p
-curl -o cmake/BPM.cmake https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.3.0/BPM.cmake -L
+curl -o cmake/BPM.cmake https://github.com/TobiasWallner/BPM.cmake/releases/download/0.4.0/BPM.cmake -L
 ```
 
 for Windows:
 ```powershell
 mkdir cmake
-Invoke-WebRequest -Uri "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.3.0/BPM.cmake" -OutFile "cmake/BPM.cmake"
+Invoke-WebRequest -Uri "https://github.com/TobiasWallner/BPM.cmake/releases/download/0.4.0/BPM.cmake" -OutFile "cmake/BPM.cmake"
 ```
-
-Usage
------
-
-Example:
-```cmake
-# ---- Include BPM -------------------------------------------------------
-include(cmake/BPM.cmake)
-
-# ---- Declare Installable Dependencies ----------------------------------
-BPMAddInstallPackage("https://github.com/fmtlib/fmt@>=10.0.0")
-BPMAddInstallPackage("https://github.com/gabime/spdlog@~1.17.0")
-
-# ---- Declare Source Dependencies ---------------------------------------
-BPMAddSourcePackage("https://github.com/stephenberry/glaze"@^v7.2.1)
-
-# ---- Make packages available -------------------------------------------
-BPMMakeAvailable()
-```
-
-Cool features:
---------------
-- Extremely small footprint in your `CMakeLists.txt`
-- Caches sources, builds and installs. 
-  - Either in the current build directory `./build/deps_` 
-  - or in a user defined cache `export BPM_CACHE=path/to/cache`.
-  - Seperates builds by hashes
-    - hash contains: compiler, compiler-version, toolchain-files, versions, git-commit-hash, library-flags, ... and many more
-- Infers versions from git tags: `v1.2.3` or `1.2.3` | `major.minor.patch`
-- Supports semver version constraints
-  - `>=`: Larger Versions - Selects this version or any newer version.
-  - `^`: Compatible Versions - Allows compatible upgrades that do not change the leading non-zero version number.
-  - `~`: Patched Versions - Allows patch updates within the same minor version.
-  - `=`: Exact Version - Selects only the exact version.
-- Resolves dependency version constraints 
-  - even diamond-dependencies
-- Cross compilation safe
-
-Programming in C++ I always wanted a package manager where i can just say:
-Here is a path to a library that i want to use. 
-And it knows how to correctly resolve version constraints, build/install and include it in my project, without me learning yet another language. 
 
 Dependencies:
 -------------
 - CMake: https://cmake.org/
 - Git: https://git-scm.com/
 
-That is it you literally need nothing more. 
-BPM is an almost zero-dependency package and dependency manager.
 
-Usage Examples:
----------------
+Usage
+-----
 
-Shorthand:
+Example:
 ```cmake
-BPMCreateInstallPackage("https://github.com/fmtlib/fmt@12.1.0")
-```
+############################# LIBRARIES ##################################
 
-Long form
-```cmake
-BPMCreateInstallPackage(
-    NAME fmt
-    GIT_REPOSITORY 
-    GIT_TAG 12.1.0
+# ---- Include BPM -------------------------------------------------------
+include(cmake/BPM.cmake)
+
+# ---- Declare Installable Dependencies ----------------------------------
+BPMAddInstallPackage("https://github.com/fmtlib/fmt@>=10.0.0")
+
+# ---- Declare Source Dependencies ---------------------------------------
+BPMAddSourcePackage("https://github.com/stephenberry/glaze"@^v7.2.1)
+
+# ---- Make packages available -------------------------------------------
+BPMMakeAvailable()
+
+############################# EXECUTABLE ##################################
+
+add_executable(main
+  main.cpp
 )
+
+target_link_libraries(main PRIVATE
+  fmt::fmt
+  glaze::glaze
+)
+
+########################### CREATE LIBRARY #################################
+
+add_library(main_lib STATIC
+  main_lib.cpp
+)
+
+target_link_libraries(main_lib PRIVATE
+  fmt::fmt
+  glaze::glaze
+)
+
+# ---- Create Installable Library ------------------------------------------
+BPMCreateInstallPackage(greet)
 ```
 
-Detailed Usage:
----------------
+Functions
+---------
 
-### Short form
+BPM aims to provide the following 4 functions:
 
-The general idea is:
+- `BPMAddInstallPackage()`:
+  - Registers an installable package/library into your project. 
+  - Builds a version graph.
+  - Will use `find_package` in `BPMMakeAvailable`.
+- `BPMAddSourcePackage()`:
+  - Registers a source package/library into your project. 
+  - Builds a version graph.
+  - Will use `add_subdirectory` in `BPMMakeAvailable`.
+- `BPMMakeAvailable()`:
+  - Solves the version graph
+  - Makes the packages available via `find_package` or `add_subdirectory`.
+- `BPMCreateInstallPackage()`:
+  - A helper that converts an `add_library` target into an `cmake --install`-able target.
 
+`BPMAddInstallPackage()` and `BPMAddSourcePackage()`
+----------------------------------------------------
+
+`BPMAddInstallPackage()` is used to register packages that should be installed.
+
+`BPMAddSourcePackage()` is used to register packages that should be integrated as source projects.
+
+The functions have two ways they can be used. A **short-** and a **long-form**.
+
+### Short-Form
+
+The following short form is provided to quickly add libraries in one line to your project.
+
+```cmake
+BPMAddInstallPackage("path/name@<constraint/version/tag/commit>")
+BPMAddSourcePackage("path/name@<constraint/version/tag/commit>")
+
+# with optional arguments
+BPMAddInstallPackage("path/name@<constraint/version/tag/commit>" PACKAGES <list-of-packages> OPTIONS <list-of-options>)
+BPMAddSourcePackage("path/name@<constraint/version/tag/commit>" OPTIONS <list-of-options>)
 ```
-path/name@<version|git-tag|commit-hash>
-```
+
+Required: `<path/name>@<constraint/version/tag/commit>`
+  - `<path/name>` The path to the git repository. The name of the library is infered from the path. E.g.: ``
+  - `<constraint/version/tag/commit>`
+    - The constraint: `>=` greater equal, `^` compatible, `~` patched, `=` exact, `<` smaller.
+    - The version: `major.minor.path`, `1.2.3` or optionally with leading `v`: `v1.2.3`.
+    - An arbitrary git-tag or git-commit-hash
+
+Optional: 
+  - `PACKAGES <list-of-packages`: (only for `BPMAddInstallPackage()`)
+    - If not provided BPM assumes that the package to integrate with `find_package` has the same name as the package name.
+    - If provided the packages from the list will be integrated with `find_package`.
+  - `OPTIONS <list-of-options>`
+    - A list of options that should be set before building the package
 
 - The repository name will be infered from the last path segment
 - The repository package (if it is an installation target) will be infered from the name or the optional `PACKAGES`
 - The version will be infered from the string after the `@`
-- Optionally allows to specify `PACKAGES`
+- Optionally allows to specify `PACKAGES` that will be integrated with `find_package`.
 - Optionally allows to specify `OPTIONS` that will be passed as flags to the package
 
 
@@ -114,65 +163,103 @@ Version can optionally have a constraint qualifiers:
 - `^`: This version or one with a greater minor or patch number
 - `~`: This version or one with a greater patch number
 - `=`: Exactly this version (default if none is provided)
+- `<`: Only versions less than (has to be paired with one of other ones)
 
 Git-Tags and Commit-Hashes can optionally have a constraint qualifiers:
 - `>=`: This version or a greater major, minor or patch number
 - `=`: Exactly this version (default if none is provided)
+- 
 
-The following are allowed:
+Examples:
+- `BPMAddInstallPackage("https://github.com/fmtlib/fmt@>=10.0.0")`
+- `BPMAddInstallPackage("https://github.com/fmtlib/fmt@>=10.0.0<11.1.0")`
+- `BPMAddInstallPackage("https://github.com/fmtlib/fmt@12.1.0" PACKAGES fmt)` 
+- `BPMAddInstallPackage("https://github.com/fmtlib/fmt@12.1.0" OPTIONS BUILD_EXAMPLES=ON)` ... BPM turns examples off by default.
+
+- `BPMAddSourcePackage("https://github.com/fmtlib/fmt@>=10.0.0")`
+- `BPMAddSourcePackage("https://github.com/fmtlib/fmt@>=10.0.0<11.1.0")`
+- `BPMAddSourcePackage("https://github.com/fmtlib/fmt@12.1.0" OPTIONS BUILD_EXAMPLES=ON)` ... BPM turns examples off by default.
+
+### Long-Form
+
+If you need more control you can use the following long form instead:
+
 ```cmake
-BPMAddInstallPackage(https://github.com/org/repo@1.2.3)
-BPMAddInstallPackage(https://github.com/org/repo@v1.2.3)
-BPMAddInstallPackage(https://github.com/org/repo@>=1.2.3)
-BPMAddInstallPackage(https://github.com/org/repo@^1.2.3)
-BPMAddInstallPackage(https://github.com/org/repo@~1.2.3)
-BPMAddInstallPackage(https://github.com/org/repo@=1.2.3)
-BPMAddInstallPackage(https://github.com/org/repo@>=v1.2.3)
-BPMAddInstallPackage(https://github.com/org/repo@^v1.2.3)
-BPMAddInstallPackage(https://github.com/org/repo@~v1.2.3)
-BPMAddInstallPackage(https://github.com/org/repo@=v1.2.3)
-BPMAddInstallPackage(https://github.com/org/repo@git-tag)
-BPMAddInstallPackage(https://github.com/org/repo@>=git-tag)
-BPMAddInstallPackage(https://github.com/org/repo@=git-tag)
-BPMAddInstallPackage(https://github.com/org/repo@>=commit-hash)
-BPMAddInstallPackage(https://github.com/org/repo@=commit-hash)
+BPMAddInstallPackage(
+  NAME <name>
+  PACKAGES <list of packages>
+  GIT_REPOSITOR <path to repo>
+  GIT_TAG <constraint/version/tag/commit>
+  OPTIONS <optional-list-of-options>
+)
 ```
 
-The following are not allowed:
-```
-BPMAddInstallPackage(https://github.com/org/repo)
-https://github.com/org/repo@^git-tag
-https://github.com/org/repo@~git-tag
-https://github.com/org/repo@^a5486b
-https://github.com/org/repo@~a5486b
-BPMAddInstallPackage(https://github.com/org/repo@^commit-hash)
-BPMAddInstallPackage(https://github.com/org/repo@~commit-hash)
+```cmake
+BPMAddSourcePackage(
+  NAME <name>
+  GIT_REPOSITOR <path to repo>
+  GIT_TAG <constraint/version/tag/commit>
+  OPTIONS <optional-list-of-options>
+)
 ```
 
-### Long form
+Required:
+- `NAME`: The name of the package/library
+- `GIT_REPOSITOR`: Path to the git repository
+- `GIT_TAG`: Provide the git tag, version, version constraints, a commit-hash here.
 
-#### Required Arguments
-- `NAME`: The name of the repository
-- `REPOSITORY`: The path of the repository
-- `GIT_TAG`: The tag to check out. Can be a named tag `tag1`, a version tag (`v`)`1.2.3` or a commit hash `407c905e45ad75fc29bf0f9bb7c5c2fd3475976f`. optionally with a constraint: `>=`, `^`, `~`, `=`
+Optional:
+- `PACKAGES`: A list of packages, from the library, that shall be integrated using `find_package`. Default is infered from the package name. (only for `BPMAddInstallPackage()`)
+- `OPTIONS`: Optional list of options that will be passed when configuring the package.
 
-#### Optional Arguments
-- `PACKAGES`: Specifies the installed packages that will be loaded. If non are provided, the packages `NAME` will be assumed as the only installed package name
-- `OPTIONS`: Options that will be passed to the packages `CMakeLists.txt`
-- `QUIET`: Will hide the output of commands
-- `BUILD_TYPE`: The build type: Release or Debug
+`BPMMakeAvailable()`
+--------------------
 
+Call make available once after you have declared all libraries. 
+Make available will: 
+  - solve the dependency graph
+    - even diamond dependencies
+  - Download libraries into the cache (default is `${CMAKE_BINARY_DIR}/_deps`)
+  - Create a manifest and unique build hash that depends on: System, compiler, options, flags, versions, cpu, toolchains ... etc.
+  - Optionally build and installs libraries.
+  - Integrates libraries with `find_package` or `add_subdirectory`
+  
+Optional Flags:
+- `NO_DOWNLOAD`: Will not download/clone/fetch repositories and only use what is already present
+  - if the repository has not been mirrored yet --> fail instead of clone
+  - if the repository might be out of date --> skipps the fetching (will result in faster configurations)
 
+- `VERBOSE`: Will print intermediary steps and results, especially of the version solving process
 
+Caching
+-------
 
+BPM will cache repository mirrors, sources, builds and installations.
 
-BPMCreateInstallPackage
-=================
+The default cache, if none is provided, is inside the build directory `${CMAKE_BINARY_DIR}/_deps`.
 
-`BPMCreateInstallPackage()` is a small convenience wrapper around the standard CMake install/export/package steps for a library package.
+However, one can provide a different cache directory directory by:
+  - Setting the environment variable `export BPM_CACH=path/to/cache`
+  - Setting the cmake configuration flag `-DBPM_CACHE=path/to/cache` (has precidence over environment variables)
 
-What it does
--------------
+That way the same cache can be used for multiple projects which avoids re-downloading and re-building and re-installing the same library over and over again for every project. 
+
+Each package has the following caches:
+ - `/mirror`: A memory and disc size efficient mirror (clone) of the repository.
+ - `src/<commit>`: Populated sources of the mirror at specific git-commits. (only kept for `BPMAddSourcePackage()`).
+ - `build/<manifest-hash>`: Binary build directory (only kept for `BPMAddSourcePackage()`).
+ - `install/<manifest-hash>`: The directory where that specific build will be installed (only generated for `BPMAddInstallPackage()`)
+ - `manifest/<manifest-hash>.manifest`: The manifest files containing: Compiler identity, System description, Versions, Flags, ... ect.
+
+To allow concurrent builds, packages are protected by lock files.
+
+`BPMCreateInstallPackage()`
+---------------------------
+
+`BPMCreateInstallPackage()` is a small convenience wrapper around the standard CMake 
+install/export/package steps for a library package.
+
+### What it does
 
 It takes one or more already-defined library targets and sets up the usual package installation boilerplate:
 
@@ -182,11 +269,10 @@ It takes one or more already-defined library targets and sets up the usual packa
 - generates and installs `<PackageName>Config.cmake`
 - optionally generates and installs `<PackageName>ConfigVersion.cmake` if `PROJECT_VERSION` is set
 
-Library Structure Assumptions
------------------------------
+### Library Structure Assumptions
 
 `BPMCreateInstallPackage()` assumes that:
-- your librarys public include directory is `include/`.
+- your librarys public include directory is `include/` (default) or provided via `PUBLIC_INCLUDE_DIRS`.
 - your targets already describe the correct build-time and install-time include paths:
   ```cmake
   target_include_directories(greet PUBLIC
@@ -195,10 +281,9 @@ Library Structure Assumptions
   )
   ```
 
-Function signatures
--------------------
+### Function signatures
 
-### Shorthand form
+#### Shorthand-form
 
 Use this when the package contains a single target and you want the package name and namespace to match that target name.
 
@@ -213,12 +298,14 @@ target_include_directories(<target> PUBLIC
 BPMCreateInstallPackage(<target>)
 ```
 
-Equivalent to:
-- `NAME` = <target>
-- `NAMESPACE` = <target>
-- `LIBRARIES` = <target>
+Equivalent to the longhand form with:
+- `NAME` = `<target>`
+- `NAMESPACE` = `<target>`
+- `LIBRARIES` = `<target>`
+- `PUBLIC_INCLUDE_DIRS` = `/include`
+- `HEADER_FILES_MATCHING` = `"*.h" "*.hh" "*.hpp" "*.hxx"`
 
-### Longhand form
+#### Long-form
 
 Use this when you want to set the package name, namespace, multiple library targets, or custom header patterns.
 ```cmake
@@ -241,9 +328,9 @@ BPMCreateInstallPackage(
 
 - `NAME`: required | exactly 1 argument  
   - package name used for:
-    - install location lib/cmake/<NAME>
-    - <NAME>Config.cmake
-    - <NAME>Targets.cmake
+    - install location `lib/cmake/<name>`
+    - `<name>Config.cmake`
+    - `<name>Targets.cmake`
 
 - `LIBRARIES` required | 1 or more arguments
   - each argument must be an existing CMake target (from `add_library` or `add_executable`)
@@ -262,10 +349,19 @@ BPMCreateInstallPackage(
 - `HEADER_FILES_MATCHING`: optional | 1 or more arguments
   - Structure of header files to install
   - Default if omitted: `*.h`, `*.hh`, `*.hpp`, `*.hxx`
+  
 
-Philosophy
------------
+Error Messages
+--------------
 
-- Package managers should not force you to program 
-- Package managers should be teachable in 5min or less
-- Package managers should be as easy as saying: I want this library at that version.
+Error messages are in the form:
+
+```
+BPM [project:package]: message
+```
+
+Error messages created by BPM will start with `"BPM"`.
+
+The first parameter in the square-brackets `[]` is the project (aka. its `CMakeLists.txt`) currently being executed.
+
+The second parameter after the double-colon `:` in the square-brackets `[]` is the package that BPM was processing when the error occured.
