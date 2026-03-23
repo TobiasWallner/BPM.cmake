@@ -121,7 +121,7 @@ function(bpm_parse_version_string in_pkg_name INPUT out_version_range)
             set(${out_version_range} "${git_tag}" PARENT_SCOPE)
             return()
         else()
-            message(FALTAL_ERROR "BPM [${PROJECT_NAME}:${in_pkg_name}]: Could not parse version string ${INPUT}")
+            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${in_pkg_name}]: Could not parse version string ${INPUT}")
         endif()
     endif()
 
