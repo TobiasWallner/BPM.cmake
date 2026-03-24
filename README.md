@@ -3,29 +3,11 @@ BPM
 
 Experimental
 
-BPM.cmake is a **CMake-native dependency solver and package bootstrapper** for CMake-based git repositories.
-It resolves version constraints across your dependency graph, caches builds reproducibly, and can integrate dependencies either via `find_package()` or `add_subdirectory()`.
-
-Accepts **arbitrary git repositories** as libraries, as long as they have a `CMakeLists.txt` to build them.
-
-BPM is capable of understanding **semver versions** (1.2.3 or v1.2.3) and can infer them from git tags. Together with the following **version constraints**: 
-- `>=`: Greater or equal versions
-- `^`: Compatible version (has to have the same leading non-zero number and be greater or equal)
-- `~`: Patched version (Allows greater or equal patched versions)
-- `=`: Exact version (default if nothing is provided)
-- `<`: Smaller versions, provides an upper bound
-
-Also supports arbitrary git-tags or git-commit-hashes.
-
-BPM will record all libraries from all included packages recursively, create and **solve the version graph**. BPM is capable of solving **Diamond dependencies**.
-
-Packages can be integrated either:
-  - trough **installations** (internally uses `find_package`), which prevents polluting the global namespace and mitigates target clashes.
-  - or through **source integrations** (internally uses `add_subdirectory`), in case the repository/library is not `cmake --install`-able.
-
-Sources, builds and installations of packages/libraries/repositories are **chached** and seperated by **manifests** that contain all relevant environment and build variables for **deterministic builds**.
-
-BPM is further capable of inspecting `CMakeLists.txt` and automatically **disabling test and example targets**.
+BPM.cmake is a **CMake-native package manager and dependency solver** for CMake-based git-repositories.
+- resolves version and constraints across your dependency graph
+- caches repositories, sources, builds and installations reproducibly
+- seperates builds and installations by versions, toolchains, environments and other build options
+- integrate dependencies either as installations or source-only libraries.
 
 Get BPM.cmake
 --------------
@@ -34,13 +16,13 @@ In your project do:
 for Linux:
 ```bash
 mkdir -p cmake
-curl -o cmake/BPM.cmake https://github.com/TobiasWallner/BPM.cmake/releases/download/0.4.1/BPM.cmake -L
-```
+curl -o cmake/BPM.cmake "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.4.2/BPM.cmake" -L
+```                     
 
 for Windows:
 ```powershell
 mkdir cmake
-Invoke-WebRequest -Uri "https://github.com/TobiasWallner/BPM.cmake/releases/download/0.4.1/BPM.cmake" -OutFile "cmake/BPM.cmake"
+Invoke-WebRequest -Uri "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.4.2/BPM.cmake" -OutFile "cmake/BPM.cmake"
 ```
 
 Dependencies:
@@ -54,44 +36,42 @@ Usage
 
 Example:
 ```cmake
+cmake_minimum_required(VERSION 3.22)
 ############################# LIBRARIES ##################################
+
+project(my_project)
 
 # ---- Include BPM -------------------------------------------------------
 include(cmake/BPM.cmake)
 
-# ---- Declare Installable Dependencies ----------------------------------
-BPMAddInstallPackage("https://github.com/fmtlib/fmt@>=10.0.0")
+# ---- Declare Dependencies ----------------------------------
+# get fmt library with exact version: exact `major.minor.patch`
+# Infer package: `fmt`
+BPMAddInstallPackage("https://github.com/fmtlib/fmt#10.0.0")
 
-# ---- Declare Source Dependencies ---------------------------------------
-BPMAddSourcePackage("https://github.com/stephenberry/glaze@^v7.2.1")
+# get glaze library with version constraint `^` (compatible): exact `major`, equal or better `minor.patch`
+BPMAddSourcePackage("https://github.com/stephenberry/glaze#^v7.2.1")
+
+# get mqtt library with version constraint `~` (patch): exact `major.minor`, equal or better `patch`
+# Pass the option: `PAHO_WITH_MQTT_C=ON` to the library
+# Use the package: `PahoMqttCpp` 
+BPMAddInstallPackage("https://github.com/eclipse-paho/paho.mqtt.cpp#~1.6.0" OPTIONS PAHO_WITH_MQTT_C=ON PACKAGES PahoMqttCpp)
 
 # ---- Make packages available -------------------------------------------
+# solves dependency graph and uses `find_package` or 
 BPMMakeAvailable()
 
 ############################# EXECUTABLE ##################################
 
-add_executable(main
+add_executable(${PROJECT_NAME}
   main.cpp
 )
 
-target_link_libraries(main PRIVATE
+target_link_libraries(${PROJECT_NAME} PRIVATE
   fmt::fmt
   glaze::glaze
+  PahoMqttCpp::paho-mqttpp3
 )
-
-########################### CREATE LIBRARY #################################
-
-add_library(main_lib STATIC
-  main_lib.cpp
-)
-
-target_link_libraries(main_lib PRIVATE
-  fmt::fmt
-  glaze::glaze
-)
-
-# ---- Create Installable Library ------------------------------------------
-BPMCreateInstallPackage(main_lib)
 ```
 
 Functions
@@ -116,9 +96,8 @@ BPM aims to provide the following 4 functions:
 `BPMAddInstallPackage()` and `BPMAddSourcePackage()`
 ----------------------------------------------------
 
-`BPMAddInstallPackage()` is used to register packages that should be installed.
-
-`BPMAddSourcePackage()` is used to register packages that should be integrated as source projects.
+- `BPMAddInstallPackage()`: is used to register packages that should be installed. Will install release builds.
+- `BPMAddSourcePackage()`: is used to register packages that should be integrated as source projects.
 
 The functions have two ways they can be used. A **short-** and a **long-form**.
 
@@ -127,15 +106,15 @@ The functions have two ways they can be used. A **short-** and a **long-form**.
 The following short form is provided to quickly add libraries in one line to your project.
 
 ```cmake
-BPMAddInstallPackage("path/name@<constraint/version/tag/commit>")
-BPMAddSourcePackage("path/name@<constraint/version/tag/commit>")
+BPMAddInstallPackage("path/name#<constraint/version/tag/commit>")
+BPMAddSourcePackage("path/name#<constraint/version/tag/commit>")
 
 # with optional arguments
-BPMAddInstallPackage("path/name@<constraint/version/tag/commit>" PACKAGES <list-of-packages> OPTIONS <list-of-options>)
-BPMAddSourcePackage("path/name@<constraint/version/tag/commit>" OPTIONS <list-of-options>)
+BPMAddInstallPackage("path/name#<constraint/version/tag/commit>" PACKAGES <list-of-packages> OPTIONS <list-of-options>)
+BPMAddSourcePackage("path/name#<constraint/version/tag/commit>" OPTIONS <list-of-options>)
 ```
 
-Required: `<path/name>@<constraint/version/tag/commit>`
+Required: `<path/name>#<constraint/version/tag/commit>`
   - `<path/name>` The path to the git repository. The name of the library is infered from the path. E.g.: ``
   - `<constraint/version/tag/commit>`
     - The constraint: `>=` greater equal, `^` compatible, `~` patched, `=` exact, `<` smaller.
@@ -151,7 +130,7 @@ Optional:
 
 - The repository name will be infered from the last path segment
 - The repository package (if it is an installation target) will be infered from the name or the optional `PACKAGES`
-- The version will be infered from the string after the `@`
+- The version will be infered from the string after the `#`
 - Optionally allows to specify `PACKAGES` that will be integrated with `find_package`.
 - Optionally allows to specify `OPTIONS` that will be passed as flags to the package
 
@@ -174,14 +153,14 @@ Git-Tags and Commit-Hashes can optionally have a constraint qualifiers:
 - 
 
 Examples:
-- `BPMAddInstallPackage("https://github.com/fmtlib/fmt@>=10.0.0")`
-- `BPMAddInstallPackage("https://github.com/fmtlib/fmt@>=10.0.0<11.1.0")`
-- `BPMAddInstallPackage("https://github.com/fmtlib/fmt@12.1.0" PACKAGES fmt)` 
-- `BPMAddInstallPackage("https://github.com/fmtlib/fmt@12.1.0" OPTIONS BUILD_EXAMPLES=ON)` ... BPM turns examples off by default.
+- `BPMAddInstallPackage("https://github.com/fmtlib/fmt#>=10.0.0")`
+- `BPMAddInstallPackage("https://github.com/fmtlib/fmt#>=10.0.0<11.1.0")`
+- `BPMAddInstallPackage("https://github.com/fmtlib/fmt#12.1.0" PACKAGES fmt)` 
+- `BPMAddInstallPackage("https://github.com/fmtlib/fmt#12.1.0" OPTIONS BUILD_EXAMPLES=ON)` ... BPM turns examples off by default.
 
-- `BPMAddSourcePackage("https://github.com/fmtlib/fmt@>=10.0.0")`
-- `BPMAddSourcePackage("https://github.com/fmtlib/fmt@>=10.0.0<11.1.0")`
-- `BPMAddSourcePackage("https://github.com/fmtlib/fmt@12.1.0" OPTIONS BUILD_EXAMPLES=ON)` ... BPM turns examples off by default.
+- `BPMAddSourcePackage("https://github.com/fmtlib/fmt#>=10.0.0")`
+- `BPMAddSourcePackage("https://github.com/fmtlib/fmt#>=10.0.0<11.1.0")`
+- `BPMAddSourcePackage("https://github.com/fmtlib/fmt#12.1.0" OPTIONS BUILD_EXAMPLES=ON)` ... BPM turns examples off by default.
 
 ### Long-Form
 
