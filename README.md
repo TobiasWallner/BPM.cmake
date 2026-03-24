@@ -36,7 +36,10 @@ Usage
 
 Example:
 ```cmake
+cmake_minimum_required(VERSION 3.22)
 ############################# LIBRARIES ##################################
+
+project(my_project)
 
 # ---- Include BPM -------------------------------------------------------
 include(cmake/BPM.cmake)
@@ -44,10 +47,10 @@ include(cmake/BPM.cmake)
 # ---- Declare Dependencies ----------------------------------
 # get fmt library with exact version: exact `major.minor.patch`
 # Infer package: `fmt`
-BPMAddInstallPackage("https://github.com/fmtlib/fmt@10.0.0")
+BPMAddInstallPackage("https://github.com/fmtlib/fmt#10.0.0")
 
 # get glaze library with version constraint `^` (compatible): exact `major`, equal or better `minor.patch`
-BPMAddSourcePackage("https://github.com/stephenberry/glaze@^v7.2.1")
+BPMAddSourcePackage("https://github.com/stephenberry/glaze#^v7.2.1")
 
 # get mqtt library with version constraint `~` (patch): exact `major.minor`, equal or better `patch`
 # Pass the option: `PAHO_WITH_MQTT_C=ON` to the library
@@ -60,13 +63,14 @@ BPMMakeAvailable()
 
 ############################# EXECUTABLE ##################################
 
-add_executable(main
+add_executable(${PROJECT_NAME}
   main.cpp
 )
 
-target_link_libraries(main PRIVATE
+target_link_libraries(${PROJECT_NAME} PRIVATE
   fmt::fmt
   glaze::glaze
+  PahoMqttCpp::paho-mqttpp3
 )
 ```
 
