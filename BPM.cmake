@@ -234,7 +234,7 @@ function(bpm_parse_short_dependency INPUT out_git_repo out_name out_tag)
     endif()
 
     if(NOT VERSION_PART)
-        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${NAME}]: No version string provided. Expected: 'path/name#version'")
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${NAME}]: No version, git-tag or git-commit-hash provided. Expected: 'path/name#version/tag/hash'")
     endif()
 
     # ------------------------------------------------------------
@@ -1614,15 +1614,15 @@ function(BPMMakeAvailable)
                 # delete source and build directory
                 file(LOCK "${lib_build_lock_file}")
                     file(LOCK "${lib_src_lock_file}")
-                        message(STATUS "BPM [${PROJECT_NAME}:${BPM_NAME}] Cleaning: '${lib_src_dir}' + '${lib_build_dir}'")
+                        message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}] Cleaning: source and build dir: '${lib_src_dir}' and '${lib_build_dir}'")
                         file(REMOVE_RECURSE "${lib_src_dir}")
                         file(REMOVE_RECURSE "${lib_build_dir}")
-                        message(STATUS "BPM [${PROJECT_NAME}:${BPM_NAME}] Cleaning - done")
+                        message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}] Cleaning - done")
                     file(LOCK "${lib_src_lock_file}" RELEASE)
                 file(LOCK "${lib_build_lock_file}" RELEASE)
 
                 if(NOT all_packages_found)
-                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${BPM_NAME}]: Find package - failed after (re-)install")
+                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Find packages '${REGISTERED_PACKAGES}' - failed after (re-)install")
                 endif()
             endif()
 
