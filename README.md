@@ -96,9 +96,8 @@ BPM aims to provide the following 4 functions:
 `BPMAddInstallPackage()` and `BPMAddSourcePackage()`
 ----------------------------------------------------
 
-`BPMAddInstallPackage()` is used to register packages that should be installed.
-
-`BPMAddSourcePackage()` is used to register packages that should be integrated as source projects.
+- `BPMAddInstallPackage()`: is used to register packages that should be installed. Will install release builds.
+- `BPMAddSourcePackage()`: is used to register packages that should be integrated as source projects.
 
 The functions have two ways they can be used. A **short-** and a **long-form**.
 
@@ -107,15 +106,15 @@ The functions have two ways they can be used. A **short-** and a **long-form**.
 The following short form is provided to quickly add libraries in one line to your project.
 
 ```cmake
-BPMAddInstallPackage("path/name@<constraint/version/tag/commit>")
-BPMAddSourcePackage("path/name@<constraint/version/tag/commit>")
+BPMAddInstallPackage("path/name#<constraint/version/tag/commit>")
+BPMAddSourcePackage("path/name#<constraint/version/tag/commit>")
 
 # with optional arguments
-BPMAddInstallPackage("path/name@<constraint/version/tag/commit>" PACKAGES <list-of-packages> OPTIONS <list-of-options>)
-BPMAddSourcePackage("path/name@<constraint/version/tag/commit>" OPTIONS <list-of-options>)
+BPMAddInstallPackage("path/name#<constraint/version/tag/commit>" PACKAGES <list-of-packages> OPTIONS <list-of-options>)
+BPMAddSourcePackage("path/name#<constraint/version/tag/commit>" OPTIONS <list-of-options>)
 ```
 
-Required: `<path/name>@<constraint/version/tag/commit>`
+Required: `<path/name>#<constraint/version/tag/commit>`
   - `<path/name>` The path to the git repository. The name of the library is infered from the path. E.g.: ``
   - `<constraint/version/tag/commit>`
     - The constraint: `>=` greater equal, `^` compatible, `~` patched, `=` exact, `<` smaller.
@@ -131,7 +130,7 @@ Optional:
 
 - The repository name will be infered from the last path segment
 - The repository package (if it is an installation target) will be infered from the name or the optional `PACKAGES`
-- The version will be infered from the string after the `@`
+- The version will be infered from the string after the `#`
 - Optionally allows to specify `PACKAGES` that will be integrated with `find_package`.
 - Optionally allows to specify `OPTIONS` that will be passed as flags to the package
 
@@ -154,14 +153,14 @@ Git-Tags and Commit-Hashes can optionally have a constraint qualifiers:
 - 
 
 Examples:
-- `BPMAddInstallPackage("https://github.com/fmtlib/fmt@>=10.0.0")`
-- `BPMAddInstallPackage("https://github.com/fmtlib/fmt@>=10.0.0<11.1.0")`
-- `BPMAddInstallPackage("https://github.com/fmtlib/fmt@12.1.0" PACKAGES fmt)` 
-- `BPMAddInstallPackage("https://github.com/fmtlib/fmt@12.1.0" OPTIONS BUILD_EXAMPLES=ON)` ... BPM turns examples off by default.
+- `BPMAddInstallPackage("https://github.com/fmtlib/fmt#>=10.0.0")`
+- `BPMAddInstallPackage("https://github.com/fmtlib/fmt#>=10.0.0<11.1.0")`
+- `BPMAddInstallPackage("https://github.com/fmtlib/fmt#12.1.0" PACKAGES fmt)` 
+- `BPMAddInstallPackage("https://github.com/fmtlib/fmt#12.1.0" OPTIONS BUILD_EXAMPLES=ON)` ... BPM turns examples off by default.
 
-- `BPMAddSourcePackage("https://github.com/fmtlib/fmt@>=10.0.0")`
-- `BPMAddSourcePackage("https://github.com/fmtlib/fmt@>=10.0.0<11.1.0")`
-- `BPMAddSourcePackage("https://github.com/fmtlib/fmt@12.1.0" OPTIONS BUILD_EXAMPLES=ON)` ... BPM turns examples off by default.
+- `BPMAddSourcePackage("https://github.com/fmtlib/fmt#>=10.0.0")`
+- `BPMAddSourcePackage("https://github.com/fmtlib/fmt#>=10.0.0<11.1.0")`
+- `BPMAddSourcePackage("https://github.com/fmtlib/fmt#12.1.0" OPTIONS BUILD_EXAMPLES=ON)` ... BPM turns examples off by default.
 
 ### Long-Form
 
