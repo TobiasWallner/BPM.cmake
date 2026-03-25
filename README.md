@@ -351,3 +351,43 @@ Error messages created by BPM will start with `"BPM"`.
 The first parameter in the square-brackets `[]` is the project (aka. its `CMakeLists.txt`) currently being executed.
 
 The second parameter after the double-colon `:` in the square-brackets `[]` is the package that BPM was processing when the error occurred.
+
+
+Why BPM?
+--------
+
+### Compared to existing solutions
+
+[**FetchContent**](https://cmake.org/cmake/help/latest/module/FetchContent.html) is the low-level native CMake solution for fetching external projects and making them available to your build. It works well for simple projects or shallow dependency graphs, and it gives you full control over how dependencies are integrated.
+
+The downside appears once dependency graphs become deeper. If multiple dependencies require the same sub-dependency in different versions, resolving those conflicts manually can become difficult and fragile.
+
+BPM aims to sit one level above `FetchContent` by providing a more package-oriented workflow with version constraints, dependency solving, and caching.
+
+[**CPM.cmake**](https://github.com/cpm-cmake/CPM.cmake) is probably the closest comparison. CPM is a small and very useful CMake wrapper built around `FetchContent`, with a simpler API, caching, and version checking. It is an excellent choice if you want a lightweight, source-based dependency helper that stays close to plain CMake.
+
+However, CPM does not fully resolve dependency conflicts for you - in conflicting transitive graphs, you still have to solve those situations manually. In addition, CPM integrates dependencies directly into the current project, which means everything lives in the same global CMake space. That can lead to target-name conflicts, which is a common problem when two repositories define targets with generic names such as `uninstall`.
+
+Choose BPM if you want automatic dependency solving with version constraints, or if you want to install packages instead of always consuming source projects. Installing packages avoids recompiling the same dependency across multiple projects and helps prevent target conflicts by not polluting the global namespace.
+
+[**Conan**](https://conan.io/) is a much larger package manager. It supports version ranges, dependency-graph solving, binary caching, and a broader packaging ecosystem (kinda similar to BPM). It integrates with CMake through generated toolchains and dependency files, and it can be a very strong solution for larger teams or projects that need a full package-management workflow.
+
+The tradeoff is complexity. Conan can be simple when you only consume dependencies in a small endpoint application, but once you start building reusable libraries or more advanced setups, it usually introduces its own packaging layer and extra files to manage, for example:
+
+- `src/library.cpp`, `include/library.hpp` - your actual library code
+- `CMakeLists.txt` - your build configuration
+- `conanfile.py` - Conan package recipe
+- `test_package/` - usually with its own `conanfile.py` and `CMakeLists.txt`
+- profiles - compiler, platform, and build settings
+
+BPM takes a more minimal approach:
+
+- one line such as `BPMAddInstallPackage(...)` or `BPMAddSourcePackage(...)` in your already existing `CMakeLists.txt` to consume a dependency
+- no separate package recipe just to make a CMake project consumable
+- one optional helper call, `BPMCreateInstallPackage(...)`, if you want to make your own library easier to install and reuse
+
+In other words, BPM is for projects that want dependency management to stay inside CMake, without introducing a second packaging language or a larger external workflow.
+
+[**vcpkg**](https://vcpkg.io/en/) focuses on a curated package ecosystem, versioning, registries, and either building from source or consuming prebuilt binaries. That is a great fit when you want broad library availability, standardization, and a package ecosystem that is already maintained for you.
+
+BPM is more flexible when your dependencies are not already packaged in a curated registry, or when you want to depend directly on git repositories and make new CMake repositories reusable immediately. BPM is aimed at projects where the repository itself should already be enough to act as a consumable library.
