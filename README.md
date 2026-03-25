@@ -6,11 +6,14 @@ Experimental
 BPM.cmake is a **CMake-native package manager and dependency solver** for CMake-based git-repositories.
 - resolves version and constraints across your dependency graph
 - caches repositories, sources, builds and installations reproducibly
-- seperates builds and installations by versions, toolchains, environments and other build options
+- separates builds and installations by versions, toolchains, environments and other build options
 - integrate dependencies either as installations or source-only libraries.
 
-Get BPM.cmake
---------------
+Quickstart
+----------
+
+### Get BPM.cmake
+
 In your project do:
 
 for Linux:
@@ -25,16 +28,7 @@ mkdir cmake
 Invoke-WebRequest -Uri "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.4.2/BPM.cmake" -OutFile "cmake/BPM.cmake"
 ```
 
-Dependencies:
--------------
-- CMake: https://cmake.org/
-- Git: https://git-scm.com/
-
-
-Usage
------
-
-Example:
+### Example:
 ```cmake
 cmake_minimum_required(VERSION 3.22)
 ############################# LIBRARIES ##################################
@@ -73,6 +67,11 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
   PahoMqttCpp::paho-mqttpp3
 )
 ```
+
+Requirements:
+-------------
+- CMake: https://cmake.org/
+- Git: https://git-scm.com/
 
 Functions
 ---------
@@ -115,10 +114,10 @@ BPMAddSourcePackage("path/name#<constraint/version/tag/commit>" OPTIONS <list-of
 ```
 
 Required: `<path/name>#<constraint/version/tag/commit>`
-  - `<path/name>` The path to the git repository. The name of the library is infered from the path. E.g.: ``
+  - `<path/name>` The path to the git repository. The name of the library is inferred from the path. E.g.: ``
   - `<constraint/version/tag/commit>`
     - The constraint: `>=` greater equal, `^` compatible, `~` patched, `=` exact, `<` smaller.
-    - The version: `major.minor.path`, `1.2.3` or optionally with leading `v`: `v1.2.3`.
+    - The version: `major.minor.patch`, `1.2.3` or optionally with leading `v`: `v1.2.3`.
     - An arbitrary git-tag or git-commit-hash
 
 Optional: 
@@ -128,9 +127,9 @@ Optional:
   - `OPTIONS <list-of-options>`
     - A list of options that should be set before building the package
 
-- The repository name will be infered from the last path segment
-- The repository package (if it is an installation target) will be infered from the name or the optional `PACKAGES`
-- The version will be infered from the string after the `#`
+- The repository name will be inferred from the last path segment
+- The repository package (if it is an installation target) will be inferred from the name or the optional `PACKAGES`
+- The version will be inferred from the string after the `#`
 - Optionally allows to specify `PACKAGES` that will be integrated with `find_package`.
 - Optionally allows to specify `OPTIONS` that will be passed as flags to the package
 
@@ -191,7 +190,7 @@ Required:
 - `GIT_TAG`: Provide the git tag, version, version constraints, a commit-hash here.
 
 Optional:
-- `PACKAGES`: A list of packages, from the library, that shall be integrated using `find_package`. Default is infered from the package name. (only for `BPMAddInstallPackage()`)
+- `PACKAGES`: A list of packages, from the library, that shall be integrated using `find_package`. Default is inferred from the package name. (only for `BPMAddInstallPackage()`)
 - `OPTIONS`: Optional list of options that will be passed when configuring the package.
 
 `BPMMakeAvailable()`
@@ -209,7 +208,7 @@ Make available will:
 Optional Flags:
 - `NO_DOWNLOAD`: Will not download/clone/fetch repositories and only use what is already present
   - if the repository has not been mirrored yet --> fail instead of clone
-  - if the repository might be out of date --> skipps the fetching (will result in faster configurations)
+  - if the repository might be out of date --> skips the fetching (will result in faster configurations)
 
 - `VERBOSE`: Will print intermediary steps and results, especially of the version solving process
 
@@ -227,7 +226,7 @@ The default cache, if none is provided, is inside the build directory `${CMAKE_B
 
 However, one can provide a different cache directory directory by:
   - Setting the environment variable `export BPM_CACHE=path/to/cache`
-  - Setting the cmake configuration flag `-DBPM_CACHE=path/to/cache` (has precidence over environment variables)
+  - Setting the cmake configuration flag `-DBPM_CACHE=path/to/cache` (has precedence over environment variables)
 
 That way the same cache can be used for multiple projects which avoids re-downloading and re-building and re-installing the same library over and over again for every project. 
 
@@ -259,7 +258,7 @@ It takes one or more already-defined library targets and sets up the usual packa
 ### Library Structure Assumptions
 
 `BPMCreateInstallPackage()` assumes that:
-- your librarys public include directory is `include/` (default) or provided via `PUBLIC_INCLUDE_DIRS`.
+- your libraries public include directory is `include/` (default) or provided via `PUBLIC_INCLUDE_DIRS`.
 - your targets already describe the correct build-time and install-time include paths:
   ```cmake
   target_include_directories(greet PUBLIC
@@ -351,4 +350,4 @@ Error messages created by BPM will start with `"BPM"`.
 
 The first parameter in the square-brackets `[]` is the project (aka. its `CMakeLists.txt`) currently being executed.
 
-The second parameter after the double-colon `:` in the square-brackets `[]` is the package that BPM was processing when the error occured.
+The second parameter after the double-colon `:` in the square-brackets `[]` is the package that BPM was processing when the error occurred.
