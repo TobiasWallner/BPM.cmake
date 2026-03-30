@@ -743,7 +743,8 @@ endfunction()
  
 function(bpm_load_tag_list mirror_dir mirror_lock_file out_tags)
     file(LOCK "${mirror_lock_file}")
-        execute_process(COMMAND git --git-dir "${mirror_dir}" tag --sort=-committerdate RESULT_VARIABLE res OUTPUT_VARIABLE tags ERROR_QUIET)
+        # --sort=-committerdate as a pre sort
+        execute_process(COMMAND git --git-dir "${mirror_dir}" tag --sort=version:refname RESULT_VARIABLE res OUTPUT_VARIABLE tags ERROR_QUIET)
     file(LOCK "${mirror_lock_file}" RELEASE)
 
     if(NOT res EQUAL 0)
@@ -819,7 +820,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
         if(version_conflict) # if there was a version conflict
             if(decision_${decision_counter}_tag_wheel)
                 # get next version from tag wheel
-                list(POP_FRONT decision_${decision_counter}_tag_wheel top_version)
+                list(POP_BACK decision_${decision_counter}_tag_wheel top_version)
 
                 set(decision_${decision_counter}_version ${top_version})
                 
@@ -1104,7 +1105,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
             set(tag_wheel "${cached_tag_wheel_${PKG_NAME}_${temp_version_range_str}}")
         endif()
 
-        list(POP_FRONT tag_wheel top_version)
+        list(POP_BACK tag_wheel top_version)
 
         # load and cache metadata
         if(NOT DEFINED metadata_${PKG_NAME}_${top_version})
