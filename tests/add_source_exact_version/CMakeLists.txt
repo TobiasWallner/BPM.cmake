@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(add_install_exact_version)
+project(add_source_exact_version)
 
 
 

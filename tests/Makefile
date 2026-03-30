@@ -10,3 +10,5 @@ pack_libraries:
 test: unpack_libraries
 	make -C add_source_exact_version test
 	make -C add_install_exact_version test
+	make -C add_install_better_patch_version test
+	make -C add_install_compatible_version test
