@@ -260,12 +260,13 @@ It takes one or more already-defined library targets and sets up the usual packa
 `BPMCreateInstallPackage()` assumes that:
 - your libraries public include directory is `include/` (default) or provided via `PUBLIC_INCLUDE_DIRS`.
 - your targets already describe the correct build-time and install-time include paths:
-  ```cmake
-  target_include_directories(greet PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
-  )
-  ```
+
+```cmake
+target_include_directories(greet PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+```
 
 ### Function signatures
 
@@ -274,13 +275,19 @@ It takes one or more already-defined library targets and sets up the usual packa
 Use this when the package contains a single target and you want the package name and namespace to match that target name.
 
 ```cmake
-add_library(<target> ...)
+# create your library and add sources
+add_library(<target> STATIC ...)
 
+# add include directories to your library
 target_include_directories(<target> PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
 
+# create an alias in case it is used as a source library with `add_subdirectory`
+add_library(<namespace>::<target> ALIAS <target>)
+
+# create an installable package so it can be used with `find_package`
 BPMCreateInstallPackage(<target>)
 ```
 
