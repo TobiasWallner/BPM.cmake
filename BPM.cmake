@@ -1052,7 +1052,6 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                 # fetch if upper version bound is inf or tag is not contained
                 if(NOT contains)
                     message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch for updates")
-                    message(FATAL_ERROR "DEBUG ERROR")
                     if(BPM_NO_DOWNLOAD)
                         message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch - skipped due to `NO_DOWNLOAD`")
                     else()
@@ -1366,6 +1365,16 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
                 set(bpm_cache_arg "-DBPM_CACHE=${BPM_CACHE_DIR}")
             endif()
             
+            set(arg_position_independent_code)
+            if(CMAKE_POSITION_INDEPENDENT_CODE)
+                set(arg_position_independent_code "-DCMAKE_POSITION_INDEPENDENT_CODE=${CMAKE_POSITION_INDEPENDENT_CODE}")
+            endif()
+
+            set(arg_build_shared_libs)
+            if(BUILD_SHARED_LIBS)
+                set(arg_build_shared_libs "-DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}")
+            endif()
+
             # TODO: Optimisation: skip instead of re-configuring
             execute_process(
                 COMMAND ${CMAKE_COMMAND}
@@ -1380,8 +1389,8 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
 
                 ${bpm_cache_arg}
                 "-DCMAKE_INSTALL_PREFIX=${lib_install_dir}"
-                "-DCMAKE_POSITION_INDEPENDENT_CODE=${CMAKE_POSITION_INDEPENDENT_CODE}"
-                "-DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}"
+                ${arg_position_independent_code}
+                ${arg_build_shared_libs}
                 
                 ${cmake_build_args}
                 ${toolchain_args}
