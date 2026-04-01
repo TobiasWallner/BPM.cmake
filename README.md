@@ -210,8 +210,10 @@ Make available will:
 Optional Flags:
 - `NO_DOWNLOAD`: Will not download/clone/fetch repositories and only use what is already present
   - if the repository has not been mirrored yet --> fail instead of clone
-  - if the repository might be out of date --> skips the fetching (will result in faster configurations)
-
+  - if the repository might be out-of-date (triggered by '`>=`' and maybe '`^`', '`~`') --> skips the fetching (will result in faster configurations)
+- `NO_DOWNLOAD_UPDATES`: Will allow to initially download/clone a repository but not to fetch and check for updates
+  - if the repository is not part of the mirror --> will download/clone
+  - if the repository might be out-of-date (triggered by '`>=`' and maybe '`^`', '`~`') --> skips the fetching (will result in faster configurations)
 - `VERBOSE`: Will print intermediary steps and results, especially of the version solving process
 
 `BPMMakeAvailable()` Also generates the file `.bpm-registry` in the projects source directory. 
