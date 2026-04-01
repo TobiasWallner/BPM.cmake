@@ -255,6 +255,15 @@ function(bpm_parse_arguments INPUT out_name out_repo out_tag out_options out_pac
     set(multiValueArgs PACKAGES OPTIONS)
     cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${INPUT})
 
+    foreach(opt IN LISTS PKG_OPTIONS)
+        if(NOT "${opt}" MATCHES "^[^=]+=.+$")
+            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Option parsing error. Option '${opt}' does not parse to '<name>=<value>'.")
+        endif()
+        if("${opt}" MATCHES "^-D")
+            message(WARNING "BPM [${PROJECT_NAME}:${PKG_NAME}]: Option '${opt}' startis with '-D'. For install packages '-D' will be automatically added.")
+        endif()
+    endforeach()
+
     # Parse arguments in short form
     if(NOT PKG_NAME AND NOT PKG_GIT_REPOSITORY AND NOT PKG_GIT_TAG)
         list(GET INPUT 0 FIRST_ARG)
