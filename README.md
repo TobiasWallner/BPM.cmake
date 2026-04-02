@@ -266,7 +266,7 @@ It takes one or more already-defined library targets and sets up the usual packa
 - your targets already describe the correct build-time and install-time include paths:
 
 ```cmake
-target_include_directories(greet PUBLIC
+target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
