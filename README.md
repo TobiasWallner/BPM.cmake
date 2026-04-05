@@ -22,13 +22,13 @@ In your project do:
 for Linux:
 ```bash
 mkdir -p cmake
-curl -o cmake/BPM.cmake "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.4.4/BPM.cmake" -L
+curl -o cmake/BPM.cmake "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.4.5/BPM.cmake" -L
 ```                     
 
 for Windows:
 ```powershell
 mkdir cmake
-Invoke-WebRequest -Uri "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.4.4/BPM.cmake" -OutFile "cmake/BPM.cmake"
+Invoke-WebRequest -Uri "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.4.5/BPM.cmake" -OutFile "cmake/BPM.cmake"
 ```
 
 ### Example:
