@@ -417,51 +417,6 @@ function(bpm_combine_options PKG_OPTIONS SEL_OPTIONS PKG_REQUIRED_FROM SEL_REQUI
 
 endfunction()
 
-
-#function(bpm_combine_options options_a options_b required_from_a required_from_b out)
-#
-#    # combine options, remove duplicates, check if there are conflicting ones
-#    set(combined_options "${options_a}")
-#    list(APPEND combined_options ${options_b})
-#    list(REMOVE_DUPLICATES combined_options)
-#    # for each element in the options list
-#    foreach(option_a IN LISTS combined_options)
-#        string(REGEX MATCH "^([^=]+)=(.*)$" _match "${option_a}")
-#        if(_match)
-#            set(option_a_name ${CMAKE_MATCH_1})
-#            set(option_a_value ${CMAKE_MATCH_2})
-#        else()
-#            set(msg_req_from)
-#            if(NOT "${required_from_a}" STREQUAL "${PROJECT_NAME}")
-#                set(msg_req_from "required from '${required_from_a}'")
-#            endif()
-#            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Option '${option_a}' ${msg_req_from} does not follow '<name>=<value>'")
-#        endif()
-#
-#        # check if there is another options element
-#        foreach(option_b IN LISTS combined_options)
-#            string(REGEX MATCH "^([^=]+)=(.*)$" _match "${option_b}")
-#            if(_match)
-#                set(option_b_name ${CMAKE_MATCH_1})
-#                set(option_b_value ${CMAKE_MATCH_2})
-#            else()
-#                message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Option '${option_b}' required from '${required_from_b}' does not follow '<name>=<value>'")
-#            endif()
-#
-#            # with the same name
-#            if("${option_a_name}" STREQUAL "${option_b_name}")
-#                bpm_equal_value("${option_a_value}" "${option_b_value}" eq)
-#                if(NOT eq)
-#                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Conflicting option: '${option_a}' required from '${required_from_a}' != '${option_b}' required from '${required_from_b}'")
-#                endif()
-#            endif()
-#        endforeach()
-#    endforeach()
-#
-#    set(${out} "${combined_options}" PARENT_SCOPE)
-#
-#endfunction()
-
 function(bpm_add_package_to_registry PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG_OPTIONS PKG_PACKAGES PKG_VERSION_RANGE TYPE)
     if(NOT (("${TYPE}" STREQUAL "INSTALL") OR ("${TYPE}" STREQUAL "ADD_SUBDIR")))
         message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Internal error: TYPE (${TYPE}) should be 'INSTALL' or 'ADD_SUBDIR'")
