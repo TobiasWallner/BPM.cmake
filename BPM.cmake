@@ -250,7 +250,7 @@ endfunction()
 function(bpm_parse_arguments INPUT out_name out_repo out_tag out_options out_packages out_version)
 
     # Parse arguments in long form
-    set(options QUIET)
+    set(options "")
     set(oneValueArgs NAME GIT_REPOSITORY GIT_TAG)
     set(multiValueArgs PACKAGES OPTIONS)
     cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${INPUT})
@@ -338,22 +338,129 @@ function(bpm_version_range_intersection in_version_range_a in_version_range_b ou
     set(${out_version_range} "${lower_bound}" "${upper_bound}" PARENT_SCOPE)
 endfunction()
 
-# #brief Creates a package registry and resolves versions
+function(bpm_equal_value A B OUT)
+    if("${A}" STREQUAL "${B}") # check if the have the same value
+        set(${OUT} TRUE PARENT_SCOPE)
+        return()
+    elseif((("${A}" STREQUAL "TRUE") OR ("${A}" STREQUAL "ON")) AND (("${B}" STREQUAL "TRUE") OR ("${B}" STREQUAL "ON")))
+        set(${OUT} TRUE PARENT_SCOPE)
+        return()
+    elseif((("${A}" STREQUAL "FALSE") OR ("${A}" STREQUAL "OFF")) AND (("${B}" STREQUAL "FALSE") OR ("${B}" STREQUAL "OFF")))
+        set(${OUT} TRUE PARENT_SCOPE)
+        return()
+    else()
+        set(${OUT} FALSE PARENT_SCOPE)
+        return()
+    endif()
+endfunction()
+
+
+function(bpm_combine_options PKG_OPTIONS SEL_OPTIONS PKG_REQUIRED_FROM SEL_REQUIRED_FROM options_out has_added_out)
+
+    set(combined_options "${SEL_OPTIONS}")
+    set(added_options FALSE)
+    foreach(pkg_opt IN LISTS PKG_OPTIONS)
+        string(REGEX MATCH "^([^=]+)=(.*)$" _match "${pkg_opt}")
+        if(_match)
+            set(pkg_opt_name ${CMAKE_MATCH_1})
+            set(pkg_opt_value ${CMAKE_MATCH_2})
+        else()
+            set(msg "Option error: '${pkg_opt}' required from '${PKG_REQUIRED_FROM}' does not follow '<name>=<value>'")
+            string(APPEND logging "\n  ${msg}")
+            set(filename "${CMAKE_BINARY_DIR}/bpm-dependency-solver-log.txt")
+            file(WRITE "${filename}" "${logging}")  
+            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: ${msg}. See '${filename}' for details")
+        endif()
+
+        set(contains FALSE)
+        foreach(sel_opt IN LISTS SEL_OPTIONS)
+            string(REGEX MATCH "^([^=]+)=(.*)$" _match "${sel_opt}")
+            if(_match)
+                set(sel_opt_name ${CMAKE_MATCH_1})
+                set(sel_opt_value ${CMAKE_MATCH_2})
+            else()
+                set(msg "Options error: '${sel_opt}' required from '${SEL_REQUIRED_FROM}' does not follow '<name>=<value>'")
+                string(APPEND logging "\n  ${msg}")
+                set(filename "${CMAKE_BINARY_DIR}/bpm-dependency-solver-log.txt")
+                file(WRITE "${filename}" "${logging}")  
+                message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: ${msg}. See '${filename}' for details")
+            endif()
+
+            # with the same name
+            if("${pkg_opt_name}" STREQUAL "${sel_opt_name}")
+                bpm_equal_value("${sel_opt_value}" "${pkg_opt_value}" eq)
+                if(NOT eq)
+                    set(msg "Options conflict: '${sel_opt}' required from '${SEL_REQUIRED_FROM}' != '${pkg_opt}' required from '${PKG_REQUIRED_FROM}'")
+                    string(APPEND logging "\n  ${msg}")
+                    set(filename "${CMAKE_BINARY_DIR}/bpm-dependency-solver-log.txt")
+                    file(WRITE "${filename}" "${logging}")
+                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: ${msg}. See '${filename}' for details")
+                endif()
+                set(contains TRUE)
+            endif()
+
+        endforeach()
+        if(NOT contains)
+            set(msg "Added option '${pkg_opt}' to package '${PKG_NAME}' required from '${PKG_REQUIRED_FROM}'")
+            string(APPEND logging "\n  ${msg}")
+            if(BPM_VERBOSE)
+                message(STATUS "  ${msg}")
+            endif()
+            
+            list(APPEND combined_options "${pkg_opt}")
+            set(added_options TRUE)
+        endif()
+    endforeach()
+
+    set(${options_out} "${combined_options}" PARENT_SCOPE)
+    set(${has_added_out} ${added_options} PARENT_SCOPE)
+
+endfunction()
+
+
+#function(bpm_combine_options options_a options_b required_from_a required_from_b out)
 #
-# Accepts shorthand reposiotories like: 
-# ```
-# https://github.com/org/repo#1.2.3
-# ```
-# or:
-# ```
-# BPMAddPackage(
-#     NAME <name>
-#     GIT_REPOSITORY <repo address>
-#     GIT_TAG <version tag>
-#     BUILD_TYPE <type: Release/Debug>
-#     OPTIONS <Optional args>
-# )
-# ```
+#    # combine options, remove duplicates, check if there are conflicting ones
+#    set(combined_options "${options_a}")
+#    list(APPEND combined_options ${options_b})
+#    list(REMOVE_DUPLICATES combined_options)
+#    # for each element in the options list
+#    foreach(option_a IN LISTS combined_options)
+#        string(REGEX MATCH "^([^=]+)=(.*)$" _match "${option_a}")
+#        if(_match)
+#            set(option_a_name ${CMAKE_MATCH_1})
+#            set(option_a_value ${CMAKE_MATCH_2})
+#        else()
+#            set(msg_req_from)
+#            if(NOT "${required_from_a}" STREQUAL "${PROJECT_NAME}")
+#                set(msg_req_from "required from '${required_from_a}'")
+#            endif()
+#            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Option '${option_a}' ${msg_req_from} does not follow '<name>=<value>'")
+#        endif()
+#
+#        # check if there is another options element
+#        foreach(option_b IN LISTS combined_options)
+#            string(REGEX MATCH "^([^=]+)=(.*)$" _match "${option_b}")
+#            if(_match)
+#                set(option_b_name ${CMAKE_MATCH_1})
+#                set(option_b_value ${CMAKE_MATCH_2})
+#            else()
+#                message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Option '${option_b}' required from '${required_from_b}' does not follow '<name>=<value>'")
+#            endif()
+#
+#            # with the same name
+#            if("${option_a_name}" STREQUAL "${option_b_name}")
+#                bpm_equal_value("${option_a_value}" "${option_b_value}" eq)
+#                if(NOT eq)
+#                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Conflicting option: '${option_a}' required from '${required_from_a}' != '${option_b}' required from '${required_from_b}'")
+#                endif()
+#            endif()
+#        endforeach()
+#    endforeach()
+#
+#    set(${out} "${combined_options}" PARENT_SCOPE)
+#
+#endfunction()
 
 function(bpm_add_package_to_registry PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG_OPTIONS PKG_PACKAGES PKG_VERSION_RANGE TYPE)
     if(NOT (("${TYPE}" STREQUAL "INSTALL") OR ("${TYPE}" STREQUAL "ADD_SUBDIR")))
@@ -384,7 +491,7 @@ function(bpm_add_package_to_registry PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG
         list(SORT PKG_OPTIONS)
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS" "${PKG_OPTIONS}")
     else()
-        #message(WARNING "BPM [${PROJECT_NAME}:${PKG_NAME}]: Defined twice in the same project")
+        message(WARNING "BPM [${PROJECT_NAME}:${PKG_NAME}]: Package added twice in the same project")
 
         get_property(REGISTERED_GIT_REPOSITORY GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_REPOSITORY")
         if(NOT "${REGISTERED_GIT_REPOSITORY}" STREQUAL "${PKG_GIT_REPOSITORY}")
@@ -401,12 +508,11 @@ function(bpm_add_package_to_registry PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG
 
         set_property(GLOBAL PROPERTY BPM_REGISTRY_${PKG_NAME}_VERSION_RANGE "${intersec_version_range}")
 
-        # check if there is an option conflict:
+        # combine options, remove duplicates, check if there are conflicting ones
         list(SORT PKG_OPTIONS)
         get_property(REGISTERED_OPTIONS GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS")
-        if(NOT "${REGISTERED_OPTIONS}" STREQUAL "${PKG_OPTIONS}")
-            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: options conflict: new: '${REGISTERED_OPTIONS}', previously defined: '${PKG_OPTIONS}'")
-        endif()
+        bpm_combine_options("${PKG_OPTIONS}" "${REGISTERED_OPTIONS}" "${PROJECT_NAME}" "${PROJECT_NAME}" combined_options _)
+        set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS" "${combined_options}")
 
         # check if there is a packages conflict
         get_property(REGISTERED_PACKAGES GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES")
@@ -602,11 +708,9 @@ function(bpm_is_version_in_range in_pkg_name in_mirror in_mirror_lock_file in_ta
         file(LOCK "${in_mirror_lock_file}" RELEASE)
 
         if("${PKG_GIT_COMMIT_A}" STREQUAL "${PKG_GIT_COMMIT_B}")
-            message(STATUS "out: true")
             set(${out} TRUE PARENT_SCOPE)   
             return()
         else()
-            message(STATUS "out: false")
             set(${out} FALSE PARENT_SCOPE)
             return()
         endif()
@@ -789,6 +893,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
     set(decision_${decision_counter}_git_repo "")
     set(decision_${decision_counter}_type "")
     set(decision_${decision_counter}_required_from "")
+    set(decision_${decision_counter}_options "")
 
     # print current decision
     
@@ -820,16 +925,17 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
         list(POP_FRONT todo_list pkg)
 
         # clear vars to avoid remaining state
-        set(PGK_NAME)
-        set(PGK_VERSION_RANGE)
-        set(PGK_GIT_TAG)
-        set(PGK_GIT_REPOSITORY)
-        set(PGK_TYPE)
-        set(PGK_REQUIRED_FRO)
+        set(PKG_NAME)
+        set(PKG_VERSION_RANGE)
+        set(PKG_GIT_TAG)
+        set(PKG_GIT_REPOSITORY)
+        set(PKG_TYPE)
+        set(PKG_REQUIRED_FROM)
+        set(PKG_OPTIONS)
 
         set(options)
         set(oneValueArgs NAME VERSION_RANGE GIT_TAG GIT_REPOSITORY TYPE REQUIRED_FROM)
-        set(multiValueArgs)
+        set(multiValueArgs OPTIONS)
         separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
         cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
         string(REPLACE "-" ";" PKG_VERSION_RANGE ${PKG_VERSION_RANGE})
@@ -844,8 +950,12 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
 
                 set(decision_${decision_counter}_version ${top_version})
                 
-                
-                set(entry "NAME ${decision_${decision_counter}_pkg_name} VERSION ${top_version} GIT_TAG ${decision_${decision_counter}_git_tag} GIT_REPO ${decision_${decision_counter}_git_repo} TYPE ${decision_${decision_counter}_type} REQUIRED_FROM ${PKG_REQUIRED_FROM}")
+                set(options_entry)
+                if(decision_${decision_counter}_options)
+                    string(REPLACE ";" "|" options_ "${decision_${decision_counter}_options}")
+                    set(options_entry "OPTIONS ${options_}")
+                endif()
+                set(entry "NAME ${decision_${decision_counter}_pkg_name} VERSION ${top_version} GIT_TAG ${decision_${decision_counter}_git_tag} GIT_REPO ${decision_${decision_counter}_git_repo} TYPE ${decision_${decision_counter}_type} REQUIRED_FROM ${PKG_REQUIRED_FROM} ${options_entry}")
                 math(EXPR prev_decision_counter "${decision_counter} - 1")
                 set(decision_${decision_counter}_selected_list "${decision_${prev_decision_counter}_selected_list}")
                 LIST(APPEND decision_${decision_counter}_selected_list "${entry}")
@@ -865,7 +975,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                     string(REPLACE ";" "," short_to_do "${short_to_do}")
                 endforeach()
                 string(REPLACE ";" "-" msg_version_range "${decision_${decision_counter}_range}")
-                set(msg "update decision: ${decision_counter} | todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${msg_version_range}, wheel: ${decision_${decision_counter}_tag_wheel}, TYPE: ${decision_${decision_counter}_type}, required from: ${decision_${decision_counter}_required_from}")
+                set(msg "update decision: ${decision_counter} | todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${msg_version_range}, wheel: ${decision_${decision_counter}_tag_wheel}, TYPE: ${decision_${decision_counter}_type}, OPTIONS: ${decision_${decision_counter}_options}, required from: ${decision_${decision_counter}_required_from}")
                 
                 if(BPM_VERBOSE)
                     message(STATUS "BPM [${PROJECT_NAME}]: ${msg}")
@@ -895,6 +1005,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                 set(decision_${decision_counter}_git_repo)
                 set(decision_${decision_counter}_type)
                 set(decision_${decision_counter}_required_from)
+                set(decision_${decision_counter}_options)
 
                 # pop
                 math(EXPR decision_counter "${decision_counter} - 1")
@@ -913,6 +1024,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
         set(version_conflict FALSE)
 
         # check if the package is already in the selected list
+        set(selected_count 0)
         foreach(selected IN LISTS decision_${decision_counter}_selected_list)
             #clear to avoid remaining state
             set(SEL_NAME) 
@@ -920,11 +1032,12 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
             set(SEL_GIT_TAG)
             set(SEL_GIT_REPO)
             set(SEL_TYPE)
-            set(SEL_REQUIRED_FRO)
+            set(SEL_OPTIONS)
+            set(SEL_REQUIRED_FROM)
 
             set(options)
-            set(oneValueArgs NAME VERSION GIT_TAG GIT_REPO TYPE REQUIRED_FROM)
-            set(multiValueArgs)
+            set(oneValueArgs NAME VERSION GIT_TAG GIT_REPO TYPE )
+            set(multiValueArgs OPTIONS REQUIRED_FROM)
             separate_arguments(selected_tokens UNIX_COMMAND "${selected}")
             cmake_parse_arguments(SEL "${options}" "${oneValueArgs}" "${multiValueArgs}" ${selected_tokens})
 
@@ -952,16 +1065,41 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                     message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Package type conflict: '${PKG_TYPE}' required from '${PKG_REQUIRED_FROM}' <-- vs --> '${SEL_TYPE}' required from '${SEL_REQUIRED_FROM}'. See '${filename}'")
                 endif()
 
+                # resolve option conflicts
+                # combine options, remove duplicates, check if there are conflicting ones
+                bpm_combine_options("${PKG_OPTIONS}" "${SEL_OPTIONS}" "${PKG_REQUIRED_FROM}" "${SEL_REQUIRED_FROM}" combined_options added_options)
+
                 # check if the selected version is in the constraint
                 bpm_is_version_in_range("${PKG_NAME}" "${mirror_dir}" "${mirror_lock_file}" "${SEL_VERSION}" "${PKG_VERSION_RANGE}" is_in_range)
                 
                 if(is_in_range)
                     # no version conflict - already part of the list
                     # record decision
-                    math(EXPR next_decision_counter "${decision_counter} + 1")
 
+                    math(EXPR next_decision_counter "${decision_counter} + 1")
                     set(decision_${next_decision_counter}_todo_list "${todo_list}")
-                    set(decision_${next_decision_counter}_selected_list "${decision_${decision_counter}_selected_list}")
+                    
+                    # update required from:
+                    set(updated_required_from "${SEL_REQUIRED_FROM}")
+                    list(APPEND updated_required_from "${PKG_REQUIRED_FROM}")
+                    list(REMOVE_DUPLICATES updated_required_from)
+                    string(REPLACE ";" " " updated_required_from "${updated_required_from}")
+
+                    if(added_options)
+                        set(updated_selected_list "${decision_${decision_counter}_selected_list}")
+                        list(REMOVE_AT updated_selected_list ${selected_count})
+
+                        # turn option list to string
+
+                        string(REPLACE ";" " " combined_options_ "${combined_options}")
+                        set(pkg_options_entry "OPTIONS ${combined_options_}")
+                        set(entry "NAME ${PKG_NAME} VERSION ${SEL_VERSION} GIT_TAG ${PKG_GIT_TAG} GIT_REPO ${PKG_GIT_REPOSITORY} TYPE ${PKG_TYPE} REQUIRED_FROM ${updated_required_from} ${pkg_options_entry}")
+                        list(APPEND updated_selected_list "${entry}")
+                        set(decision_${next_decision_counter}_selected_list "${updated_selected_list}")
+                    else()
+                        set(decision_${next_decision_counter}_selected_list "${decision_${decision_counter}_selected_list}")
+                    endif()
+
                     set(decision_${next_decision_counter}_pkg_name "${PKG_NAME}")
                     set(decision_${next_decision_counter}_version "${SEL_VERSION}")
                     set(decision_${next_decision_counter}_tag_wheel "${decision_${decision_counter}_tag_wheel}")
@@ -970,6 +1108,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                     set(decision_${next_decision_counter}_git_repo "${PKG_GIT_REPOSITORY}")
                     set(decision_${next_decision_counter}_type "${PKG_TYPE}")
                     set(decision_${next_decision_counter}_required_from "${PKG_REQUIRED_FROM}")
+                    set(decision_${next_decision_counter}_options "${PKG_OPTIONS}")
 
                     # increment
                     set(decision_counter "${next_decision_counter}")
@@ -986,7 +1125,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                         string(REPLACE ";" "," short_to_do "${short_to_do}")
                     endforeach()
                     string(REPLACE ";" "-" msg_version_range "${decision_${decision_counter}_range}")
-                    set(msg "decision: ${decision_counter} | todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${msg_version_range}, wheel: ${decision_${decision_counter}_tag_wheel}, TYPE: ${decision_${decision_counter}_type}, required from: ${decision_${decision_counter}_required_from}")
+                    set(msg "decision: ${decision_counter} | todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${msg_version_range}, wheel: ${decision_${decision_counter}_tag_wheel}, TYPE: ${decision_${decision_counter}_type}, OPTIONS: ${decision_${decision_counter}_options}, required from: ${decision_${decision_counter}_required_from}")
                     if(BPM_VERBOSE)
                         message(STATUS "BPM [${PROJECT_NAME}]: ${msg}")
                     endif()
@@ -1033,6 +1172,8 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                     break() # to leave for loop and then continue in the while loop
                 endif()
             endif()
+
+            math(EXPR selected_count "${selected_count} + 1")
         endforeach()
 
         # continue whith the next package if one decision got solved in the for loop
@@ -1084,7 +1225,9 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                 # if tags have not been acquired - load them
                 bpm_load_tag_list("${mirror_dir}" "${mirror_lock_file}" tags)
                 if(NOT tags)
-                    message(FATAL_ERROR "BPM [${PKG_NAME}]: Has no tags to checkout. Mirror: ${mirror_dir}")
+                    set(filename "${CMAKE_BINARY_DIR}/bpm-dependency-solver-log.txt")
+                    file(WRITE "${filename}" "${logging}")
+                    message(FATAL_ERROR "BPM [${PKG_NAME}]: Has no tags to checkout. Mirror: ${mirror_dir}. See '${filename}' for details.")
                 endif()
                 # cache tags
                 set("BPM_REGISTRY_${PKG_NAME}_GIT_TAGS" "${tags}")
@@ -1136,7 +1279,9 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                         # re-update tags after fetching
                         bpm_load_tag_list("${mirror_dir}" "${mirror_lock_file}" tags)
                         if(NOT tags)
-                            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Has no tags to checkout. Mirror: ${mirror_dir}")
+                            set(filename "${CMAKE_BINARY_DIR}/bpm-dependency-solver-log.txt")
+                            file(WRITE "${filename}" "${logging}")
+                            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Has no tags to checkout. Mirror: ${mirror_dir}. See '${filename}' for details.")
                         endif()
     
                         # cache tags
@@ -1159,7 +1304,9 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                 if(NOT tag_wheel)
                     list(GET IN_RANGE 0 version_lower)
                     list(GET IN_RANGE 1 version_upper)
-                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: No tags in range ${version_lower}-${version_upper}. Mirror: ${mirror_dir}")
+                    set(filename "${CMAKE_BINARY_DIR}/bpm-dependency-solver-log.txt")
+                    file(WRITE "${filename}" "${logging}")
+                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: No tags in range ${version_lower}-${version_upper}. Mirror: ${mirror_dir}. See '${filename}' for details.")
                 endif()
             endif()
 
@@ -1194,8 +1341,13 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
         # no registry found --> no more entries added to the todo list --> make decision and continue
         math(EXPR next_decision_counter "${decision_counter} + 1")
         
-
-        set(entry "NAME ${PKG_NAME} VERSION ${top_version} GIT_TAG ${PKG_GIT_TAG} GIT_REPO ${PKG_GIT_REPOSITORY} TYPE ${PKG_TYPE} REQUIRED_FROM ${PKG_REQUIRED_FROM}")
+        set(pkg_options_entry)
+        if(PKG_OPTIONS)
+            # turn list to multi arg list
+            string(REPLACE ";" " " PKG_OPTIONS_ "${PKG_OPTIONS}")
+            set(pkg_options_entry "OPTIONS ${PKG_OPTIONS_}")
+        endif()
+        set(entry "NAME ${PKG_NAME} VERSION ${top_version} GIT_TAG ${PKG_GIT_TAG} GIT_REPO ${PKG_GIT_REPOSITORY} TYPE ${PKG_TYPE} REQUIRED_FROM ${PKG_REQUIRED_FROM} ${pkg_options_entry}")
 
         set(decision_${next_decision_counter}_todo_list "${todo_list}")
         set(decision_${next_decision_counter}_selected_list "${decision_${decision_counter}_selected_list}")
@@ -1208,6 +1360,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
         set(decision_${next_decision_counter}_git_repo "${PKG_GIT_REPOSITORY}")
         set(decision_${next_decision_counter}_type "${PKG_TYPE}")
         set(decision_${next_decision_counter}_required_from "${PKG_REQUIRED_FROM}")
+        set(decision_${next_decision_counter}_options "${PKG_OPTIONS}")
 
         #increment
         set(decision_counter "${next_decision_counter}")
@@ -1224,7 +1377,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
             string(REPLACE ";" "," short_to_do "${short_to_do}")
         endforeach()
         string(REPLACE ";" "-" msg_version_range "${decision_${decision_counter}_range}")
-        set(msg "new decision: ${decision_counter} | todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${msg_version_range}, wheel: ${decision_${decision_counter}_tag_wheel}, TYPE: ${decision_${decision_counter}_type}, required from: ${decision_${decision_counter}_required_from}")
+        set(msg "new decision: ${decision_counter} | todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${msg_version_range}, wheel: ${decision_${decision_counter}_tag_wheel}, TYPE: ${decision_${decision_counter}_type}, OPTIONS: ${decision_${decision_counter}_options}, required from: ${decision_${decision_counter}_required_from}")
         if(BPM_VERBOSE)
             message(STATUS "BPM [${PROJECT_NAME}]: ${msg}")
         endif()
@@ -1559,18 +1712,15 @@ function(BPMMakeAvailable)
         get_property(GIT_TAG GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_TAG")
         get_property(GIT_REPOSITORY GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_REPOSITORY")
         get_property(TYPE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_TYPE")
+        get_property(OPTIONS GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS")
 
         string(REPLACE ";" "-" SAFE_VERSION_RANGE "${VERSION_RANGE}")
+        string(REPLACE ";" " " SAFE_OPTIONS "${OPTIONS}")
 
-        string(APPEND registry_content
-            "NAME ${PKG_NAME} VERSION_RANGE ${SAFE_VERSION_RANGE} "
-            "GIT_TAG ${GIT_TAG} GIT_REPOSITORY ${GIT_REPOSITORY} TYPE ${TYPE};"
-        )
-        
-        string(APPEND registry_file_content
-            "NAME ${PKG_NAME} VERSION_RANGE ${SAFE_VERSION_RANGE} "
-            "GIT_TAG ${GIT_TAG} GIT_REPOSITORY ${GIT_REPOSITORY} TYPE ${TYPE}\n"
-        )
+        set(entry "NAME ${PKG_NAME} VERSION_RANGE ${SAFE_VERSION_RANGE} GIT_TAG ${GIT_TAG} GIT_REPOSITORY ${GIT_REPOSITORY} TYPE ${TYPE} OPTIONS ${SAFE_OPTIONS}")
+        string(APPEND registry_content "${entry};")
+        string(APPEND registry_file_content "${entry}\n")
+
     endforeach()
     
     # TODO: sort fily by package names before writing for improved robustness
@@ -1599,11 +1749,16 @@ function(BPMMakeAvailable)
         foreach(pkg IN LISTS solution)
             set(options)
             set(oneValueArgs NAME VERSION GIT_REPO)
-            set(multiValueArgs)
+            set(multiValueArgs OPTIONS)
             separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
             cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
 
             message(STATUS "BPM [${PROJECT_NAME}]: Resolved: ${PKG_NAME}#${PKG_VERSION} : ${PKG_GIT_REPO}")
+            if(PKG_OPTIONS)
+                message(STATUS "  OPTIONS: ${PKG_OPTIONS}")
+            else()
+                message(STATUS "  NO OPTIONS found")
+            endif()
             
         endforeach()
 
@@ -1620,10 +1775,11 @@ function(BPMMakeAvailable)
     
     foreach(pkg IN LISTS solution)
         set(options)
-        set(oneValueArgs NAME VERSION GIT_REPO)
+        set(oneValueArgs NAME VERSION GIT_REPO OPTIONS)
         set(multiValueArgs)
         separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
         cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
+        string(REPLACE "|" ";" PKG_OPTIONS "${PKG_OPTIONS}")
 
         # Prevent double adding through subdirectory packages
         get_property(PKG_MADE_AVAILABLE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_MADE_AVAILABLE")
@@ -1644,7 +1800,7 @@ function(BPMMakeAvailable)
         file(SHA256 "${CMAKE_C_COMPILER}" C_COMPILER_HASH)
         file(SHA256 "${CMAKE_CXX_COMPILER}" CXX_COMPILER_HASH)
 
-        get_property(PKG_OPTIONS GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS")
+        #get_property(PKG_OPTIONS GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS")
 
         file(LOCK "${lib_mirror_lock_file}")
             execute_process(COMMAND git --git-dir "${lib_mirror_dir}" rev-parse "${PKG_VERSION}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE PKG_GIT_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE)
@@ -1653,6 +1809,9 @@ function(BPMMakeAvailable)
         if(NOT res EQUAL 0)
             message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Could not convert '${PKG_VERSION}' to commit-hash in mirror '${lib_mirror_dir}'")
         endif()
+
+        # sort options list before creating the manifest
+        list(SORT PKG_OPTIONS)
 
         # turn tag into commit hash
         bpm_create_manifest(manifest

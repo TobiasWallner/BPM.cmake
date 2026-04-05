@@ -7,6 +7,7 @@ Experimental
 
 BPM.cmake is a **CMake-native package manager and dependency solver** for CMake-based git-repositories.
 - resolves version and constraints across your dependency graph
+- resolves package optinos across your dependency graph
 - caches repositories, sources, builds and installations reproducibly
 - separates builds and installations by versions, toolchains, environments and other build options
 - integrate dependencies either as installations or source-only libraries.
@@ -126,15 +127,16 @@ Optional:
   - `PACKAGES <list-of-packages`: (only for `BPMAddInstallPackage()`)
     - If not provided BPM assumes that the package to integrate with `find_package` has the same name as the package name.
     - If provided the packages from the list will be integrated with `find_package`.
-  - `OPTIONS <list-of-options>`
+  - `OPTIONS <list: name=value>`
     - A list of options that should be set before building the package
+    - Option resolving:
+      - Options that are explicitly set will be compared during the configuration and if the are conflicting (same name with different values) and error is generated
+      - If options are not explicitly set a library is allowed to inherit that option from a different package that has set it explicitly
 
-- The repository name will be inferred from the last path segment
-- The repository package (if it is an installation target) will be inferred from the name or the optional `PACKAGES`
-- The version will be inferred from the string after the `#`
-- Optionally allows to specify `PACKAGES` that will be integrated with `find_package`.
-- Optionally allows to specify `OPTIONS` that will be passed as flags to the package
-
+Implicitly infered:
+- `NAME` The repository name will be inferred from the last path segment (ignoring trailing `.git`)
+- `PACKAGES` If not provided: the repository package (if it is an installation target) will be inferred from the name
+- The version/git-tag/commit-hash will be inferred from the string after the `#`
 
 The version can be:
 - `1.2.3`: Major.Minor.Patch version numbers
@@ -194,6 +196,9 @@ Required:
 Optional:
 - `PACKAGES`: A list of packages, from the library, that shall be integrated using `find_package`. Default is inferred from the package name. (only for `BPMAddInstallPackage()`)
 - `OPTIONS`: Optional list of options that will be passed when configuring the package.
+  - Option resolving:
+    - Options that are explicitly set will be compared during the configuration and if the are conflicting (same name with different values) and error is generated
+    - If options are not explicitly set a library is allowed to inherit that option from a different package that has set it explicitly
 
 `BPMMakeAvailable()`
 --------------------
