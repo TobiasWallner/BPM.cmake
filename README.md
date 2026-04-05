@@ -233,7 +233,7 @@ BPM will cache repository mirrors, sources, builds and installations.
 
 The default cache, if none is provided, is inside the build directory `${CMAKE_BINARY_DIR}/_deps`.
 
-However, one can provide a different cache directory directory by:
+However, one can provide a different cache directory by:
   - Setting the environment variable `export BPM_CACHE=path/to/cache`
   - Setting the cmake configuration flag `-DBPM_CACHE=path/to/cache` (has precedence over environment variables)
 
