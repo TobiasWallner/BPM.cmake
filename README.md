@@ -5,7 +5,9 @@ Experimental
 
 [![Tests](https://github.com/TobiasWallner/BPM.cmake/actions/workflows/tests.yml/badge.svg)](https://github.com/TobiasWallner/BPM.cmake/actions/workflows/tests.yml)
 
-BPM.cmake is a **CMake-native package manager and dependency solver** for CMake-based git-repositories.
+BPM.cmake is here to make it easy to include libraries into your C/C++ projects.
+
+It is a **CMake-native package manager and dependency solver** for CMake-based git-repositories.
 - resolves version and constraints across your dependency graph
 - resolves package optinos across your dependency graph
 - caches repositories, sources, builds and installations reproducibly
