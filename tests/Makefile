@@ -5,6 +5,8 @@ unpack:
 	tar -xzf libraryBoption.tar.gz
 	tar -xzf libraryC.tar.gz
 	tar -xzf libraryDepC.tar.gz
+	@(cd libraryBoption && "$(MAKE)" prepare)
+	@(cd libraryDepC && "$(MAKE)" prepare)
 
 .PHONY: unpack_libraries
 pack:
@@ -13,6 +15,7 @@ pack:
 	tar -czf libraryBoption.tar.gz libraryBoption
 	tar -czf libraryC.tar.gz libraryC
 	tar -czf libraryDepC.tar.gz libraryDepC
+	
 
 .PHONY: test
 test:
