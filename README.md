@@ -353,6 +353,19 @@ BPMCreateInstallPackage(
   - Default if omitted: `*.h`, `*.hh`, `*.hpp`, `*.hxx`
   
 
+Additional Options
+------------------
+
+Additional options that can be set either as a CMake variable `set(...)` as a CMake argument `-D...` or as an environment variable.
+
+- `BPM_CLEAN_SOURCE_AFTER_INSTALL`
+  - Default: `TRUE`
+  - If set: will delete the checked out source directory after installing to free space from your filesystem. Does not delete the local mirror, only the files that got created when checking out a specific version/commit.
+
+- `BPM_CLEAN_BUILD_AFTER_INSTALL`
+  - Default: `TRUE`
+  - If set: will delete the build directory and its artefacts to free space from the filesystem.
+
 Error Messages
 --------------
 

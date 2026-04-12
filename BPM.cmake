@@ -1,5 +1,23 @@
 cmake_minimum_required(VERSION 3.20)
 
+function(bpm_load_env_var VAR_NAME DEFAULT)
+    # VAR_NAME: the variable name to check (e.g., "BPM_CLEAN_INSTALL")
+    # DEFAULT: the default value if not found
+    
+    if(DEFINED ${VAR_NAME})
+        # use local CMake variable (highest priority)
+        set(_value "${${VAR_NAME}}")
+    elseif(DEFINED ENV{${VAR_NAME}})
+        # fall back to environment variable
+        set(_value "$ENV{${VAR_NAME}}")
+    else()
+        # fall back to default
+        set(_value "${DEFAULT}")
+    endif()
+    
+    set(${VAR_NAME} "${_value}" PARENT_SCOPE)
+endfunction()
+
 # @parses a constraint + version string into a closed-open range of allowed version
 # 
 # input: >=1.2.3 --> output: LIST 1.2.3;inf.inf.inf -- meaning: from version 1.2.3 to upper bound inf.inf.inf
@@ -248,6 +266,14 @@ function(bpm_parse_short_dependency INPUT out_git_repo out_name out_tag)
 endfunction()
 
 function(bpm_parse_arguments INPUT out_name out_repo out_tag out_options out_packages out_version)
+    # clear variables to prevent accidental reuse in the loop
+    unset(PKG_NAME)
+    unset(PKG_GIT_REPOSITORY)
+    unset(PKG_GIT_TAG)
+    unset(PKG_PACKAGES)
+    unset(PKG_OPTIONS)
+    unset(PKG_VERSION)
+    unset(PKG_VERSION_QUALIFIER)
 
     # Parse arguments in long form
     set(options "")
@@ -469,7 +495,7 @@ function(bpm_add_package_to_registry PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG
         bpm_combine_options("${PKG_OPTIONS}" "${REGISTERED_OPTIONS}" "${PROJECT_NAME}" "${PROJECT_NAME}" combined_options _)
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS" "${combined_options}")
 
-        # check if there is a packages conflict
+        # resolve packages
         get_property(REGISTERED_PACKAGES GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES")
         set(JOINED_PACKAGES ${PKG_PACKAGES} ${REGISTERED_PACKAGES})
         list(REMOVE_DUPLICATES JOINED_PACKAGES)
@@ -849,11 +875,16 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
     set(decision_${decision_counter}_type "")
     set(decision_${decision_counter}_required_from "")
     set(decision_${decision_counter}_options "")
+    set(decision_${decision_counter}_packages "")
 
     # print current decision
     
     set(short_to_do "")
     foreach(todo IN LISTS decision_${decision_counter}_todo_list)
+        # clear to avoid remaining state
+        set(TODO_NAME)
+
+        # parse the todo entry
         set(options)
         set(oneValueArgs NAME)
         set(multiValueArgs)
@@ -887,10 +918,11 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
         set(PKG_TYPE)
         set(PKG_REQUIRED_FROM)
         set(PKG_OPTIONS)
+        set(PKG_PACKAGES)
 
         set(options)
         set(oneValueArgs NAME VERSION_RANGE GIT_TAG GIT_REPOSITORY TYPE REQUIRED_FROM)
-        set(multiValueArgs OPTIONS)
+        set(multiValueArgs OPTIONS PACKAGES)
         separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
         cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
         string(REPLACE "-" ";" PKG_VERSION_RANGE ${PKG_VERSION_RANGE})
@@ -907,10 +939,14 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                 
                 set(options_entry)
                 if(decision_${decision_counter}_options)
-                    string(REPLACE ";" "|" options_ "${decision_${decision_counter}_options}")
+                    string(REPLACE ";" " " options_ "${decision_${decision_counter}_options}")
                     set(options_entry "OPTIONS ${options_}")
                 endif()
-                set(entry "NAME ${decision_${decision_counter}_pkg_name} VERSION ${top_version} GIT_TAG ${decision_${decision_counter}_git_tag} GIT_REPO ${decision_${decision_counter}_git_repo} TYPE ${decision_${decision_counter}_type} REQUIRED_FROM ${PKG_REQUIRED_FROM} ${options_entry}")
+                if(decision_${decision_counter}_packages)
+                    string(REPLACE ";" " " packages_ "${decision_${decision_counter}_packages}")
+                    set(packages_entry "OPTIONS ${options_}")
+                endif()
+                set(entry "NAME ${decision_${decision_counter}_pkg_name} VERSION ${top_version} GIT_TAG ${decision_${decision_counter}_git_tag} GIT_REPO ${decision_${decision_counter}_git_repo} TYPE ${decision_${decision_counter}_type} REQUIRED_FROM ${PKG_REQUIRED_FROM} ${options_entry} ${packages_entry}")
                 math(EXPR prev_decision_counter "${decision_counter} - 1")
                 set(decision_${decision_counter}_selected_list "${decision_${prev_decision_counter}_selected_list}")
                 LIST(APPEND decision_${decision_counter}_selected_list "${entry}")
@@ -930,7 +966,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                     string(REPLACE ";" "," short_to_do "${short_to_do}")
                 endforeach()
                 string(REPLACE ";" "-" msg_version_range "${decision_${decision_counter}_range}")
-                set(msg "update decision: ${decision_counter} | todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${msg_version_range}, wheel: ${decision_${decision_counter}_tag_wheel}, TYPE: ${decision_${decision_counter}_type}, OPTIONS: ${decision_${decision_counter}_options}, required from: ${decision_${decision_counter}_required_from}")
+                set(msg "update decision: ${decision_counter} | todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${msg_version_range}, wheel: ${decision_${decision_counter}_tag_wheel}, TYPE: ${decision_${decision_counter}_type}, OPTIONS: ${decision_${decision_counter}_options}, PACKAGES ${decision_${decision_counter}_packages}, required from: ${decision_${decision_counter}_required_from}")
                 
                 if(BPM_VERBOSE)
                     message(STATUS "BPM [${PROJECT_NAME}]: ${msg}")
@@ -961,6 +997,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                 set(decision_${decision_counter}_type)
                 set(decision_${decision_counter}_required_from)
                 set(decision_${decision_counter}_options)
+                set(decision_${decision_counter}_packages)
 
                 # pop
                 math(EXPR decision_counter "${decision_counter} - 1")
@@ -988,11 +1025,12 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
             set(SEL_GIT_REPO)
             set(SEL_TYPE)
             set(SEL_OPTIONS)
+            set(SEL_PACKAGES)
             set(SEL_REQUIRED_FROM)
 
             set(options)
             set(oneValueArgs NAME VERSION GIT_TAG GIT_REPO TYPE )
-            set(multiValueArgs OPTIONS REQUIRED_FROM)
+            set(multiValueArgs OPTIONS REQUIRED_FROM PACKAGES)
             separate_arguments(selected_tokens UNIX_COMMAND "${selected}")
             cmake_parse_arguments(SEL "${options}" "${oneValueArgs}" "${multiValueArgs}" ${selected_tokens})
 
@@ -1024,6 +1062,11 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                 # combine options, remove duplicates, check if there are conflicting ones
                 bpm_combine_options("${PKG_OPTIONS}" "${SEL_OPTIONS}" "${PKG_REQUIRED_FROM}" "${SEL_REQUIRED_FROM}" combined_options added_options)
 
+                # combine packages
+                set(combined_packages ${PKG_PACKAGES})
+                list(APPEND combined_packages ${SEL_PACKAGES})
+                list(REMOVE_DUPLICATES combined_packages)
+
                 # check if the selected version is in the constraint
                 bpm_is_version_in_range("${PKG_NAME}" "${mirror_dir}" "${mirror_lock_file}" "${SEL_VERSION}" "${PKG_VERSION_RANGE}" is_in_range)
                 
@@ -1040,7 +1083,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                     list(REMOVE_DUPLICATES updated_required_from)
                     string(REPLACE ";" " " updated_required_from "${updated_required_from}")
 
-                    if(added_options)
+                    # update selected list: options or packages might have changed
                         set(updated_selected_list "${decision_${decision_counter}_selected_list}")
                         list(REMOVE_AT updated_selected_list ${selected_count})
 
@@ -1048,12 +1091,15 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
 
                         string(REPLACE ";" " " combined_options_ "${combined_options}")
                         set(pkg_options_entry "OPTIONS ${combined_options_}")
-                        set(entry "NAME ${PKG_NAME} VERSION ${SEL_VERSION} GIT_TAG ${PKG_GIT_TAG} GIT_REPO ${PKG_GIT_REPOSITORY} TYPE ${PKG_TYPE} REQUIRED_FROM ${updated_required_from} ${pkg_options_entry}")
+                        if(combined_packages)
+                            # turn list to multi arg list
+                            string(REPLACE ";" " " combined_packages_ "${combined_packages}")
+                            set(pkg_packages_entry "PACKAGES ${combined_packages_}")
+                        endif()
+                        set(entry "NAME ${PKG_NAME} VERSION ${SEL_VERSION} GIT_TAG ${PKG_GIT_TAG} GIT_REPO ${PKG_GIT_REPOSITORY} TYPE ${PKG_TYPE} REQUIRED_FROM ${updated_required_from} ${pkg_options_entry} ${pkg_packages_entry}")
                         list(APPEND updated_selected_list "${entry}")
                         set(decision_${next_decision_counter}_selected_list "${updated_selected_list}")
-                    else()
-                        set(decision_${next_decision_counter}_selected_list "${decision_${decision_counter}_selected_list}")
-                    endif()
+                    
 
                     set(decision_${next_decision_counter}_pkg_name "${PKG_NAME}")
                     set(decision_${next_decision_counter}_version "${SEL_VERSION}")
@@ -1064,6 +1110,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                     set(decision_${next_decision_counter}_type "${PKG_TYPE}")
                     set(decision_${next_decision_counter}_required_from "${PKG_REQUIRED_FROM}")
                     set(decision_${next_decision_counter}_options "${PKG_OPTIONS}")
+                    set(decision_${next_decision_counter}_packages "${PKG_PACKAGES}")
 
                     # increment
                     set(decision_counter "${next_decision_counter}")
@@ -1080,7 +1127,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                         string(REPLACE ";" "," short_to_do "${short_to_do}")
                     endforeach()
                     string(REPLACE ";" "-" msg_version_range "${decision_${decision_counter}_range}")
-                    set(msg "decision: ${decision_counter} | todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${msg_version_range}, wheel: ${decision_${decision_counter}_tag_wheel}, TYPE: ${decision_${decision_counter}_type}, OPTIONS: ${decision_${decision_counter}_options}, required from: ${decision_${decision_counter}_required_from}")
+                    set(msg "decision: ${decision_counter} | todo: [${short_to_do}], pkg: ${decision_${decision_counter}_pkg_name}, version: ${decision_${decision_counter}_version}, range: ${msg_version_range}, wheel: ${decision_${decision_counter}_tag_wheel}, TYPE: ${decision_${decision_counter}_type}, OPTIONS: ${decision_${decision_counter}_options}, PACKAGES ${decision_${decision_counter}_packages}, required from: ${decision_${decision_counter}_required_from}")
                     if(BPM_VERBOSE)
                         message(STATUS "BPM [${PROJECT_NAME}]: ${msg}")
                     endif()
@@ -1150,22 +1197,29 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
             # build the version wheel for this package
             if(NOT mirror_${PKG_NAME}_up_to_date)
                 if(NOT EXISTS "${mirror_dir}/HEAD")
-                    message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Cloning git repository: ${PKG_GIT_REPOSITORY} into: ${mirror_dir}")
+                    set(relative_mirror_dir "\${BPM_CACHE}/${PKG_NAME}/mirror")
+                    if(BPM_VERBOSE)
+                        message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Cloning git repository: '${PKG_GIT_REPOSITORY}' into '${relative_mirror_dir}'")
+                    else()
+                        message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Cloning '${PKG_NAME}' into '${relative_mirror_dir}'")
+                    endif()
                     if(BPM_NO_DOWNLOAD)
-                        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Mirror does not exist: '${mirror_dir}'. Cannot download from '${PKG_GIT_REPOSITORY}', because `NO_DOWNLOAD` was provided.")
+                        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Mirror does not exist: '${relative_mirror_dir}'. Cannot download from '${PKG_GIT_REPOSITORY}', because `NO_DOWNLOAD` was provided.")
                     endif()
                     file(LOCK "${mirror_lock_file}")
                         if(NOT EXISTS "${mirror_dir}/HEAD")
                             if(BPM_VERBOSE)
                                 execute_process(COMMAND git clone --mirror "${PKG_GIT_REPOSITORY}" "${mirror_dir}" --recursive -c advice.detachedHead=false RESULT_VARIABLE res)
                             else()
-                                execute_process(COMMAND git clone --mirror "${PKG_GIT_REPOSITORY}" "${mirror_dir}" --recursive -c advice.detachedHead=false RESULT_VARIABLE res OUTPUT_QUIET)
+                                execute_process(COMMAND git clone --mirror "${PKG_GIT_REPOSITORY}" "${mirror_dir}" --recursive -c advice.detachedHead=false RESULT_VARIABLE res OUTPUT_QUIET ERROR_QUIET)
                             endif()
                         endif()
                     file(LOCK "${mirror_lock_file}" RELEASE)
 
                     if(res EQUAL 0)
-                        message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Cloning git repository - success")
+                        if(BPM_VERBOSE)
+                            message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Cloning git repository - success")
+                        endif()
                         set(mirror_${PKG_NAME}_up_to_date TRUE)
                     else() 
                         message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Cloning git repository - failed")
@@ -1226,7 +1280,9 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                         file(LOCK "${mirror_lock_file}" RELEASE)
 
                         if(res EQUAL 0)
-                            message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch for updates - success")
+                            if(BPM_VERBOSE)
+                                message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch for updates - success")
+                            endif()
                         else() 
                             message(WARNING "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch for updates - failed")
                         endif()
@@ -1302,7 +1358,12 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
             string(REPLACE ";" " " PKG_OPTIONS_ "${PKG_OPTIONS}")
             set(pkg_options_entry "OPTIONS ${PKG_OPTIONS_}")
         endif()
-        set(entry "NAME ${PKG_NAME} VERSION ${top_version} GIT_TAG ${PKG_GIT_TAG} GIT_REPO ${PKG_GIT_REPOSITORY} TYPE ${PKG_TYPE} REQUIRED_FROM ${PKG_REQUIRED_FROM} ${pkg_options_entry}")
+        if(PKG_PACKAGES)
+            # turn list to multi arg list
+            string(REPLACE ";" " " PKG_PACKAGES_ "${PKG_PACKAGES}")
+            set(pkg_packages_entry "PACKAGES ${PKG_PACKAGES_}")
+        endif()
+        set(entry "NAME ${PKG_NAME} VERSION ${top_version} GIT_TAG ${PKG_GIT_TAG} GIT_REPO ${PKG_GIT_REPOSITORY} TYPE ${PKG_TYPE} REQUIRED_FROM ${PKG_REQUIRED_FROM} ${pkg_options_entry} ${pkg_packages_entry}")
 
         set(decision_${next_decision_counter}_todo_list "${todo_list}")
         set(decision_${next_decision_counter}_selected_list "${decision_${decision_counter}_selected_list}")
@@ -1316,6 +1377,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
         set(decision_${next_decision_counter}_type "${PKG_TYPE}")
         set(decision_${next_decision_counter}_required_from "${PKG_REQUIRED_FROM}")
         set(decision_${next_decision_counter}_options "${PKG_OPTIONS}")
+        set(decision_${next_decision_counter}_packages "${PKG_PACKAGES}")
 
         #increment
         set(decision_counter "${next_decision_counter}")
@@ -1359,22 +1421,78 @@ endfunction()
 
 function(bpm_try_find_packages lib_name packages lib_install_dir OUT_FOUND_ALL)
     set(all_packages_found TRUE)
+
+    list(LENGTH packages packages_length)
+    if(packages_length EQUAL 0)
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${lib_name}] No packages provided.")
+        set(${OUT_FOUND_ALL} FALSE PARENT_SCOPE)
+        return()
+    endif()
+
+    set(found_packages)
+    set(missing_packages)
+
     foreach(package IN LISTS packages)
         # unset for deterministic find without sideeffects
         unset(${package}_DIR CACHE)
-        if(PKG_VERBOSE)
+        if(BPM_VERBOSE)
+            message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Find package: ${package} - looking in: ${lib_install_dir}")
+        endif()
+        if(BPM_VERBOSE)
             find_package(${package} CONFIG NO_DEFAULT_PATH PATHS "${lib_install_dir}")
         else()
-            find_package(${package} QUIET CONFIG NO_DEFAULT_PATH PATHS "${lib_install_dir}")
+            find_package(${package} CONFIG NO_DEFAULT_PATH PATHS "${lib_install_dir}" QUIET)
         endif()
         unset(${package}_DIR)
+
         if(${package}_FOUND)
-            message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Find package : ${package} - found in: ${lib_install_dir}")
+            if(NOT found_packages)
+                string(APPEND found_packages "${package}")
+            else()
+                string(APPEND found_packages ", ${package}")
+            endif()
+            if(BPM_VERBOSE)
+                message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Find package: ${package} - found")
+            endif()
         else()
-            message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: WARNING: Find package : ${package} - missing")
+            if(NOT missing_packages)
+                string(APPEND missing_packages "${package}")
+            else()
+                string(APPEND missing_packages ", ${package}")
+            endif()
+            if(BPM_VERBOSE)
+                message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Find package : ${package} - missing")
+            endif()
             set(all_packages_found FALSE)
         endif()
     endforeach()
+
+    if(NOT BPM_VERBOSE)
+        if(found_packages)
+            message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Found packages: ${found_packages}")
+        endif()
+        if(missing_packages)
+            message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Missing packages: ${missing_packages}")
+        endif()
+    endif()
+
+    if(NOT all_packages_found)
+        # check which packages are actually in the install dir to give a more detailed error message
+        file(GLOB_RECURSE config_files "${lib_install_dir}/*Config.cmake" "${lib_install_dir}/*config.cmake")
+        if(config_files)
+            set(installed_package_names)
+            foreach(config_file IN LISTS config_files)
+                get_filename_component(config_dir "${config_file}" DIRECTORY)
+                get_filename_component(package_name "${config_dir}" NAME)
+                if(NOT installed_package_names)
+                    string(APPEND installed_package_names "${package_name}")
+                else()
+                    string(APPEND installed_package_names ", ${package_name}")
+                endif()
+            endforeach()
+            message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: NOTE: Installed packages: ${installed_package_names}")
+        endif()
+    endif()
 
     set(${OUT_FOUND_ALL} ${all_packages_found} PARENT_SCOPE)
 endfunction()
@@ -1526,6 +1644,11 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
         )
     endif()
 
+    set(verbose_arg)
+    if(BPM_VERBOSE)
+        set(verbose_arg "-DBPM_VERBOSE=ON")
+    endif()
+
     # lockorder: install -> build -> source -> mirror
     file(LOCK "${lib_build_lock_file}")
         file(LOCK "${lib_src_lock_file}")  
@@ -1548,6 +1671,12 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
                 set(arg_build_shared_libs "-DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}")
             endif()
 
+            set(quiet)
+            if(NOT BPM_VERBOSE)
+                set(quiet "OUTPUT_QUIET")
+            endif()
+                
+
             # TODO: Optimisation: skip instead of re-configuring
             execute_process(
                 COMMAND ${CMAKE_COMMAND}
@@ -1569,15 +1698,20 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
                 ${toolchain_args}
                 ${cmake_disable_test_example_flags}
                 ${dependencies_arg}
+                
+                ${verbose_arg}
 
                 RESULT_VARIABLE res
+                ${quiet}
             )
 
         file(LOCK "${lib_build_lock_file}" RELEASE)
     file(LOCK "${lib_src_lock_file}" RELEASE)
 
     if(res EQUAL 0)
-        message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Configuring - done")
+        if(BPM_VERBOSE)
+            message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Configuring - done")
+        endif()
     else() 
         message(FATAL_ERROR "BPM [${PROJECT_NAME}:${lib_name}]: Configuring - failed")
     endif()
@@ -1598,7 +1732,9 @@ function(bpm_build_library lib_name library_build_dir lib_build_lock_file)
     file(LOCK "${lib_build_lock_file}" RELEASE)
 
     if(res EQUAL 0)
-        message(NOTICE "BPM [${PROJECT_NAME}:${lib_name}]: Building - done")
+        if(BPM_VERBOSE)
+            message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Building - done")
+        endif()
     else() 
         message(FATAL_ERROR "BPM [${PROJECT_NAME}:${lib_name}]: Building - failed")
     endif()
@@ -1606,7 +1742,11 @@ function(bpm_build_library lib_name library_build_dir lib_build_lock_file)
 endfunction()
 
 function(bpm_install_library lib_name lib_build_dir lib_install_dir lib_build_lock_file lib_install_lock_file)
-    message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Installing")
+    if(BPM_VERBOSE)
+        message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Installing from ${lib_build_dir} into ${lib_install_dir}")
+    else()
+        message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Installing")
+    endif()
 
     # lockorder: install -> build -> source -> mirror
     file(LOCK "${lib_install_lock_file}")
@@ -1620,7 +1760,9 @@ function(bpm_install_library lib_name lib_build_dir lib_install_dir lib_build_lo
     file(LOCK "${lib_install_lock_file}" RELEASE)
 
     if(res EQUAL 0)
-        message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Installing - done")
+        if(BPM_VERBOSE)
+            message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Installing - done")
+        endif()
     else() 
         # clean install on error
         file(REMOVE_RECURSE "${library_install_dir}")
@@ -1630,29 +1772,158 @@ function(bpm_install_library lib_name lib_build_dir lib_install_dir lib_build_lo
 endfunction()
 
 function(bpm_show_installed_packages PKG_NAME lib_install_dir)
+    if(NOT EXISTS ${lib_install_dir})
+        message()
+        return()
+    endif()
     file(GLOB_RECURSE config_files "${lib_install_dir}/*Config.cmake" "${lib_install_dir}/*config.cmake")
     if(config_files)
-        message("")
-        message(STATUS "==================== BPM [${PROJECT_NAME}:${PKG_NAME}]: Installed ===================")
-        foreach(config_file IN LISTS config_files)
-            get_filename_component(config_dir "${config_file}" DIRECTORY)
-            get_filename_component(package_name "${config_dir}" NAME)
-            message(STATUS " - ${package_name}")
-        endforeach()
-        message(STATUS "=============================== END =================================")
-        message("")
+        if(BPM_VERBOSE)
+            message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Installed packages:")
+            foreach(config_file IN LISTS config_files)
+                get_filename_component(config_dir "${config_file}" DIRECTORY)
+                get_filename_component(package_name "${config_dir}" NAME)
+                message(STATUS "  - ${package_name}:\t from ${config_file}")
+            endforeach()
+        else()
+            set(installed_package_names)
+            foreach(config_file IN LISTS config_files)
+                get_filename_component(config_dir "${config_file}" DIRECTORY)
+                get_filename_component(package_name "${config_dir}" NAME)
+                if(NOT installed_package_names)
+                    string(APPEND installed_package_names "${package_name}")
+                else()
+                    string(APPEND installed_package_names ", ${package_name}")
+                endif()
+            endforeach()
+            message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Installed packages: ${installed_package_names}")
+        endif()
     else()
-        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Installed, but no CMake package config files found.")
+        if(BPM_VERBOSE)
+            message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: No packages were found in: ${lib_install_dir}")
+        else()
+            message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: No packages were found")
+        endif()
     endif()
+endfunction()
+
+function(bpm_load_dependencies BPM_CACHE_DIR registry_content master_solution out_solution)
+
+    set(todo_list "${registry_content}")
+    set(solution "")
+
+    foreach(todo IN LISTS todo_list)
+        # clear name to prevent accidental reuse if parsing fails
+        set(TODO_NAME)
+
+        # parse the todo entry
+        set(options "")
+        set(oneValueArgs NAME)
+        set(multiValueArgs)
+        separate_arguments(todo_tokens UNIX_COMMAND "${todo}")
+        cmake_parse_arguments(TODO "${options}" "${oneValueArgs}" "${multiValueArgs}" ${todo_tokens})
+
+        set(in_todo_${TODO_NAME} TRUE)
+    endforeach()
+
+    while(todo_list)
+        list(POP_FRONT todo_list todo)
+
+        # clear name to prevent accidental reuse if parsing fails
+        set(PKG_NAME)
+
+        set(options "")
+        set(oneValueArgs NAME)
+        set(multiValueArgs)
+        separate_arguments(todo_tokens UNIX_COMMAND "${todo}")
+        cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${todo_tokens})
+
+        set(mirror_lock_file "${BPM_CACHE_DIR}/${PKG_NAME}/mirror.lock")
+        set(mirror_dir "${BPM_CACHE_DIR}/${PKG_NAME}/mirror")
+
+        # load solution data from master solution
+        foreach(line IN LISTS master_solution)
+
+            # clear name to prevent accidental reuse if parsing fails
+            set(SOL_NAME)
+            set(SOL_VERSION)
+
+            set(options "")
+            set(oneValueArgs NAME VERSION)
+            set(multiValueArgs "")
+            separate_arguments(line_tokens UNIX_COMMAND "${line}")
+            cmake_parse_arguments(SOL "${options}" "${oneValueArgs}" "${multiValueArgs}" ${line_tokens})
+            if("${SOL_NAME}" STREQUAL "${PKG_NAME}")
+                if(BPM_VERBOSE)
+                    message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Found solution: ${line}")
+                else()
+                    message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Found solution: NAME ${SOL_NAME} VERSION ${SOL_VERSION} ... ")
+                endif()
+                # build solution list 
+                if(NOT in_solution_${PKG_NAME})
+                    set(in_solution_${PKG_NAME} TRUE)
+                    list(APPEND solution "${line}")
+                endif()
+
+                break()
+            endif()
+        endforeach()
+        
+        # load registry and add to the todo list, but only if not already part of the solution or the todo
+        if(NOT DEFINED metadata_${SOL_NAME}_${SOL_VERSION})
+            file(LOCK "${mirror_lock_file}")
+                execute_process(COMMAND git --git-dir "${mirror_dir}" cat-file blob "${top_version}:.bpm-registry" RESULT_VARIABLE res OUTPUT_VARIABLE metadata_tmp ERROR_QUIET)
+            file(LOCK "${mirror_lock_file}" RELEASE)
+
+            string(REPLACE "\r\n" "\n" metadata_tmp "${metadata_tmp}") # replace new lines windows to unix style
+            string(REPLACE "\n" ";" metadata_${PKG_NAME}_${top_version} "${metadata_tmp}") # replace new lines with ; for list seperators
+        endif()
+
+        # load the metadata for the package and add entries to the todo list
+        foreach(line IN LISTS metadata_${PKG_NAME}_${top_version})
+            if(line)
+                string(STRIP "${line}" line)
+
+                # clear name to prevent accidental reuse if parsing fails
+                set(LINE_NAME)
+
+                # parse the line to check if it is not already in the solution or the todo list before adding it to the todo list
+                set(options "")
+                set(oneValueArgs NAME)
+                set(multiValueArgs "")
+                separate_arguments(line_tokens UNIX_COMMAND "${line}")
+                cmake_parse_arguments(LINE "${options}" "${oneValueArgs}" "${multiValueArgs}" ${line_tokens})
+
+                if((NOT line STREQUAL "") AND (NOT in_todo_${LINE_NAME}))
+                    set(in_todo_${LINE_NAME} TRUE)
+                    list(APPEND todo_list "${line}")
+                endif()
+            endif()
+        endforeach()
+
+    endwhile()
+
+    set(${out_solution} "${solution}" PARENT_SCOPE)
 endfunction()
 
 #
 function(BPMMakeAvailable)
+    message("")
 
     set(options VERBOSE NO_DOWNLOAD NO_DOWNLOAD_UPDATES)
     set(oneValueArgs)
     set(multiValueArgs)
-    cmake_parse_arguments(BPM "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+    cmake_parse_arguments(_BPM "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+    
+    if(_BPM_VERBOSE)
+        set(BPM_VERBOSE TRUE)
+    endif()
+    if(_BPM_NO_DOWNLOAD)
+        set(BPM_NO_DOWNLOAD TRUE)
+    endif()
+    if(_BPM_NO_DOWNLOAD_UPDATES)
+        set(BPM_NO_DOWNLOAD_UPDATES TRUE)
+    endif()
 
     bpm_get_cache_dir(BPM_CACHE_DIR)
 
@@ -1668,11 +1939,23 @@ function(BPMMakeAvailable)
         get_property(GIT_REPOSITORY GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_REPOSITORY")
         get_property(TYPE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_TYPE")
         get_property(OPTIONS GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS")
+        get_property(PKG_PACKAGES GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES")
 
         string(REPLACE ";" "-" SAFE_VERSION_RANGE "${VERSION_RANGE}")
-        string(REPLACE ";" " " SAFE_OPTIONS "${OPTIONS}")
 
-        set(entry "NAME ${PKG_NAME} VERSION_RANGE ${SAFE_VERSION_RANGE} GIT_TAG ${GIT_TAG} GIT_REPOSITORY ${GIT_REPOSITORY} TYPE ${TYPE} OPTIONS ${SAFE_OPTIONS}")
+        set(options_entry)
+        if(OPTIONS)
+            string(REPLACE ";" " " options_entry "${OPTIONS}")
+            set(options_entry "OPTIONS ${options_entry}")
+        endif()
+
+        set(packages_entry)
+        if(PKG_PACKAGES)
+            string(REPLACE ";" " " packages_entry "${PKG_PACKAGES}")
+            set(packages_entry "PACKAGES ${packages_entry}")
+        endif()
+
+        set(entry "NAME ${PKG_NAME} VERSION_RANGE ${SAFE_VERSION_RANGE} GIT_TAG ${GIT_TAG} GIT_REPOSITORY ${GIT_REPOSITORY} TYPE ${TYPE} ${options_entry} ${packages_entry}")
         string(APPEND registry_content "${entry};")
         string(APPEND registry_file_content "${entry}\n")
 
@@ -1693,48 +1976,77 @@ function(BPMMakeAvailable)
     # -------------------------------
 
     if(NOT DEFINED BPM_DEPENDENCY_SOLUTION)
-        bpm_solve_dependencies(${BPM_CACHE_DIR} "${registry_content}" solution)
+        message("")
+        message(STATUS "BPM [${PROJECT_NAME}]: Solving dependency graph")
+        bpm_solve_dependencies("${BPM_CACHE_DIR}" "${registry_content}" solution)
         
         # write/update solution on change
         file(WRITE "${CMAKE_BINARY_DIR}/bpm-dependency-solution.cmake" "${solution}")
 
-        message(STATUS "")
-        message(STATUS "================= Dependency Graph Solution =================")
+        message("")
+        message(STATUS "BPM [${PROJECT_NAME}]: Dependency Graph Solution ")
 
         foreach(pkg IN LISTS solution)
+            # clear variables to prevent accidental reuse in the loop
+            set(PKG_NAME)
+            set(PKG_VERSION)
+            set(PKG_GIT_REPO)
+            set(PKG_OPTIONS)
+            set(PKG_PACKAGES)
+
+            # parse solution entry
             set(options)
             set(oneValueArgs NAME VERSION GIT_REPO)
-            set(multiValueArgs OPTIONS)
+            set(multiValueArgs OPTIONS PACKAGES)
             separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
             cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
 
-            message(STATUS "BPM [${PROJECT_NAME}]: Resolved: ${PKG_NAME}#${PKG_VERSION} : ${PKG_GIT_REPO}")
-            if(PKG_OPTIONS)
-                message(STATUS "  OPTIONS: ${PKG_OPTIONS}")
-            else()
-                message(STATUS "  NO OPTIONS found")
+            message(STATUS "  + Resolved: ${PKG_NAME}#${PKG_VERSION}")
+            if(BPM_VERBOSE)
+                message(STATUS "    + GIT_REPO: ${PKG_GIT_REPO}")
+                if(PKG_OPTIONS)
+                    message(STATUS "    > OPTIONS:")
+                    foreach(opt IN LISTS PKG_OPTIONS)
+                        message(STATUS "    - ${opt}")
+                    endforeach()
+                endif()
+
+                if(PKG_PACKAGES)
+                    message(STATUS "    > PACKAGES:")
+                    foreach(p IN LISTS PKG_PACKAGES)
+                        message(STATUS "    - ${p}")
+                    endforeach()
+                endif()
             endif()
-            
         endforeach()
 
-        message(STATUS "============================ END ===========================")
-        message(STATUS "")
     else()
-        file(READ "${BPM_DEPENDENCY_SOLUTION}" solution)
+        file(READ "${BPM_DEPENDENCY_SOLUTION}" master_solution)
+        bpm_load_dependencies("${BPM_CACHE_DIR}" "${registry_content}" "${master_solution}" solution)
+
     endif()
 
     # ------------------------------------------------------------------------------
     # Add package with `add_subdirectory` or install and add with `find_package`
     # ------------------------------------------------------------------------------
-
-    
+    message("")
+    message(STATUS "BPM [${PROJECT_NAME}]: Making packages available")
+    list(REVERSE solution) # reverse for correct order of installation (dependencies first)
     foreach(pkg IN LISTS solution)
+        # clear variables to prevent accidental reuse in the loop
+        set(PKG_NAME)
+        set(PKG_VERSION)
+        set(PKG_GIT_REPO)
+        set(PKG_TYPE)
+        set(PKG_OPTIONS)
+        set(PKG_PACKAGES)
+
+        # parse solution entry
         set(options)
-        set(oneValueArgs NAME VERSION GIT_REPO OPTIONS)
-        set(multiValueArgs)
+        set(oneValueArgs NAME VERSION GIT_REPO TYPE)
+        set(multiValueArgs OPTIONS PACKAGES)
         separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
         cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
-        string(REPLACE "|" ";" PKG_OPTIONS "${PKG_OPTIONS}")
 
         # Prevent double adding through subdirectory packages
         get_property(PKG_MADE_AVAILABLE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_MADE_AVAILABLE")
@@ -1823,15 +2135,27 @@ function(BPMMakeAvailable)
             file(WRITE "${manifest_file_path}" "${manifest}")
         endif()
 
-        get_property("BPM_${PKG_NAME}_TYPE" GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_TYPE")
-        if("${BPM_${PKG_NAME}_TYPE}" STREQUAL "INSTALL")
-            message(STATUS "BPM [${PROJECT_NAME}]: Adding Install: ${PKG_NAME}#${PKG_VERSION} : ${PKG_GIT_REPO}")
+        if("${PKG_TYPE}" STREQUAL "INSTALL")
+            if(BPM_VERBOSE)
+                message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Make Available (INSTALL): ${PKG_NAME}#${PKG_VERSION} : ${PKG_GIT_REPO}")
+            endif()
 
-            get_property(REGISTERED_PACKAGES GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES")
+            if(NOT PKG_PACKAGES)
+                message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: No PACKAGES provided for INSTALL type")
+            endif()
 
-            bpm_try_find_packages("${PKG_NAME}" "${REGISTERED_PACKAGES}" "${lib_install_dir}" all_packages_found)
+            bpm_try_find_packages("${PKG_NAME}" "${PKG_PACKAGES}" "${lib_install_dir}" all_packages_found)
             if(NOT all_packages_found)
-                message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Find packages - failed: attempt install")
+                
+                set(packages_string)
+                foreach(p IN LISTS PKG_PACKAGES)
+                    if(NOT packages_string)
+                        set(packages_string "${p}")
+                    else()
+                        string(APPEND packages_string ", ${p}")
+                    endif()
+                endforeach()
+                message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Attempt installation: ${packages_string}")
 
                 # clone mirror into source dir
                 bpm_clone_from_mirror("${PKG_NAME}" "${lib_mirror_dir}" "${lib_src_dir}" "${PKG_VERSION}" "${lib_mirror_lock_file}" "${lib_src_lock_file}")
@@ -1849,26 +2173,44 @@ function(BPMMakeAvailable)
                 bpm_show_installed_packages("${PKG_NAME}" "${lib_install_dir}")
 
                 # try to make the packagse available
-                bpm_try_find_packages("${PKG_NAME}" "${REGISTERED_PACKAGES}" "${lib_install_dir}" all_packages_found)
+                bpm_try_find_packages("${PKG_NAME}" "${PKG_PACKAGES}" "${lib_install_dir}" all_packages_found)
 
                 # delete source and build directory
-                file(LOCK "${lib_build_lock_file}")
+                bpm_load_env_var(BPM_CLEAN_SOURCE_AFTER_INSTALL TRUE)
+                if(BPM_CLEAN_SOURCE_AFTER_INSTALL)
                     file(LOCK "${lib_src_lock_file}")
-                        message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}] Cleaning: source and build dir: '${lib_src_dir}' and '${lib_build_dir}'")
+                        set(relative_source_dir "\${BPM_CACHE}/${PKG_NAME}/src/${PKG_GIT_COMMIT_HASH}")
+                        message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Cleaning source dir: '${relative_source_dir}'")
                         file(REMOVE_RECURSE "${lib_src_dir}")
-                        file(REMOVE_RECURSE "${lib_build_dir}")
-                        message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}] Cleaning - done")
                     file(LOCK "${lib_src_lock_file}" RELEASE)
-                file(LOCK "${lib_build_lock_file}" RELEASE)
+                    file(REMOVE "${lib_src_dir}")
+                    if(BPM_VERBOSE)
+                        message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Cleaning source dir - done")
+                    endif()
+                endif()
+
+                bpm_load_env_var(BPM_CLEAN_BUILD_AFTER_INSTALL TRUE)
+                if(BPM_CLEAN_BUILD_AFTER_INSTALL)
+                    file(LOCK "${lib_build_lock_file}")
+                        set(relative_build_dir "\${BPM_CACHE}/${PKG_NAME}/build/${SHORT_MANIFEST_HASH}")
+                        message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Cleaning build dir: '${relative_build_dir}'")
+                        file(REMOVE_RECURSE "${lib_build_dir}")
+                    file(LOCK "${lib_build_lock_file}" RELEASE)
+                    file(REMOVE "${lib_build_dir}")
+                    if(BPM_VERBOSE)
+                        message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Cleaning build dir - done")
+                    endif()
+                endif()
 
                 if(NOT all_packages_found)
-                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Find packages '${REGISTERED_PACKAGES}' - failed after (re-)install")
+                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Find packages '${PKG_PACKAGES}' - failed after (re-)install")
                 endif()
             endif()
 
-        elseif("${BPM_${PKG_NAME}_TYPE}" STREQUAL "ADD_SUBDIR")
-
-            message(STATUS "BPM [${PROJECT_NAME}]: Adding Subdirectory: ${PKG_NAME}#${PKG_VERSION} : ${PKG_GIT_REPO}")
+        elseif("${PKG_TYPE}" STREQUAL "ADD_SUBDIR")
+            if(BPM_VERBOSE)
+                message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Make Available (SUBDIRECTORY): ${PKG_NAME}#${PKG_VERSION} : ${PKG_GIT_REPO}")
+            endif()
 
             # clone mirror into source dir
             bpm_clone_from_mirror("${PKG_NAME}" "${lib_mirror_dir}" "${lib_src_dir}" "${PKG_VERSION}" "${lib_mirror_lock_file}" "${lib_src_lock_file}")
@@ -1895,7 +2237,7 @@ function(BPMMakeAvailable)
 
             add_subdirectory("${lib_src_dir}" "${lib_build_dir}")
         else()
-            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Internal error. Unknown TYPE '${BPM_${PKG_NAME}_TYPE}'. Shoule be 'INSTALL' or 'ADD_SUBDIR'")
+            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Internal error. Unknown TYPE '${PKG_TYPE}'. Shoule be 'INSTALL' or 'ADD_SUBDIR'")
         endif()
     endforeach()
 
