@@ -23,4 +23,6 @@ jobs:
           make --version
           
       - name: Run tests/Makefile:test
-        run: make -C tests test
+        run: |
+          make -C tests unpack
+          make -C tests test

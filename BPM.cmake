@@ -364,6 +364,82 @@ function(bpm_version_range_intersection in_version_range_a in_version_range_b ou
     set(${out_version_range} "${lower_bound}" "${upper_bound}" PARENT_SCOPE)
 endfunction()
 
+function(path_normalise INPUT OUTPUT)
+    set(path "${INPUT}")
+
+    # normalize slashes
+    file(TO_CMAKE_PATH "${path}" path)
+
+    # remove trailing whitespace
+    string(STRIP "${url}" path)
+
+    # remove trailing .git
+    string(REGEX REPLACE "\\.git$" "" path "${path}")
+
+    # remove trailing slash
+    string(REGEX REPLACE "/$" "" path "${path}")
+
+    # Decide whether this is a local filesystem path.
+    set(is_filesystem_path FALSE)
+    if(EXISTS "${path}")
+        set(is_filesystem_path TRUE)
+    elseif(IS_ABSOLUTE "${path}")
+        set(is_filesystem_path TRUE)
+    elseif(path MATCHES "^[.][.]?(/.*)?$")
+        set(is_filesystem_path TRUE)
+    elseif(path MATCHES "^[A-Za-z]:/.*$")
+        set(is_filesystem_path TRUE)
+    elseif(path MATCHES "^/.*$")
+        set(is_filesystem_path TRUE)
+    endif()
+
+    if(is_path)
+        file(REAL_PATH "${path}" path BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+        
+        string(REGEX REPLACE "/$" "" value "${value}")
+        
+        # Windows paths should compare case-insensitively
+        if(WIN32)
+            string(TOLOWER "${value}" value)
+        endif()
+
+        set(${OUTPUT} "${value}" PARENT_SCOPE)
+        return()
+    else()
+        # ssh form: git@host:user/repo
+        if(path MATCHES "^[^@]+@([^:]+):(.+)$")
+            string(REGEX REPLACE "^[^@]+@([^:]+):(.+)$" "\\1/\\2" path "${path}")
+        endif()
+
+        # ssh://git@host/user/repo
+        if(path MATCHES "^ssh://")
+            string(REGEX REPLACE "^ssh://([^@]+@)?" "web://" path "${path}")
+        endif()
+
+        # http(s)://host/user/repo
+        if(path MATCHES "^https?://")
+            string(REGEX REPLACE "^https?://" "web://" path "${path}")
+        endif()
+
+        # normalize slashes in case of Windows paths
+        file(TO_CMAKE_PATH "${path}" path)
+
+        set(${OUTPUT} "${path}" PARENT_SCOPE)
+        return()
+    endif()
+endfunction()
+
+function(path_equal A B RESULT)
+    path_normalise("${A}" A_NORM)
+    path_normalise("${B}" B_NORM)
+
+    if(A_NORM STREQUAL B_NORM)
+        set(${RESULT} TRUE PARENT_SCOPE)
+    else()
+        set(${RESULT} FALSE PARENT_SCOPE)
+    endif()
+endfunction()
+
 function(bpm_equal_value A B OUT)
     if("${A}" STREQUAL "${B}") # check if the have the same value
         set(${OUT} TRUE PARENT_SCOPE)
@@ -375,8 +451,15 @@ function(bpm_equal_value A B OUT)
         set(${OUT} TRUE PARENT_SCOPE)
         return()
     else()
-        set(${OUT} FALSE PARENT_SCOPE)
-        return()
+        # options might be paths, compare them with path-aware comparison
+        path_equal("${A}" "${B}" eq)
+        if(eq)
+            set(${OUT} TRUE PARENT_SCOPE)
+            return()
+        else()
+            set(${OUT} FALSE PARENT_SCOPE)
+            return()
+        endif()
     endif()
 endfunction()
 
@@ -791,49 +874,7 @@ function(bpm_is_version_in_range in_pkg_name in_mirror in_mirror_lock_file in_ta
     
 endfunction()
 
-function(git_repo_normalize INPUT OUTPUT)
-    set(url "${INPUT}")
 
-    # remove trailing whitespace
-    string(STRIP "${url}" url)
-
-    # remove trailing .git
-    string(REGEX REPLACE "\\.git$" "" url "${url}")
-
-    # remove trailing slash
-    string(REGEX REPLACE "/$" "" url "${url}")
-
-    # ssh form: git@host:user/repo
-    if(url MATCHES "^[^@]+@([^:]+):(.+)$")
-        string(REGEX REPLACE "^[^@]+@([^:]+):(.+)$" "\\1/\\2" url "${url}")
-    endif()
-
-    # ssh://git@host/user/repo
-    if(url MATCHES "^ssh://")
-        string(REGEX REPLACE "^ssh://([^@]+@)?" "web://" url "${url}")
-    endif()
-
-    # http(s)://host/user/repo
-    if(url MATCHES "^https?://")
-        string(REGEX REPLACE "^https?://" "web://" url "${url}")
-    endif()
-
-    # normalize slashes in case of Windows paths
-    file(TO_CMAKE_PATH "${url}" url)
-
-    set(${OUTPUT} "${url}" PARENT_SCOPE)
-endfunction()
-
-function(git_repo_equal A B RESULT)
-    git_repo_normalize("${A}" A_NORM)
-    git_repo_normalize("${B}" B_NORM)
-
-    if(A_NORM STREQUAL B_NORM)
-        set(${RESULT} TRUE PARENT_SCOPE)
-    else()
-        set(${RESULT} FALSE PARENT_SCOPE)
-    endif()
-endfunction()
  
 function(bpm_load_tag_list mirror_dir mirror_lock_file out_tags)
     file(LOCK "${mirror_lock_file}")
@@ -1036,7 +1077,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
 
             if(("${SEL_NAME}" STREQUAL "${PKG_NAME}") OR ("${PKG_GIT_REPOSITORY}" STREQUAL "${SEL_GIT_REPO}"))
                 # repo conflict?
-                git_repo_equal("${PKG_GIT_REPOSITORY}" "${SEL_GIT_REPO}" are_repos_equal)
+                path_equal("${PKG_GIT_REPOSITORY}" "${SEL_GIT_REPO}" are_repos_equal)
 
                 if(NOT are_repos_equal)
                     set(filename "${CMAKE_BINARY_DIR}/bpm-dependency-solver-log.txt")

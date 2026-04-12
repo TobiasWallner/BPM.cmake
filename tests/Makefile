@@ -15,14 +15,14 @@ pack:
 	tar -czf libraryDepC.tar.gz libraryDepC
 
 .PHONY: test
-test: unpack
-	make -C add_install_better_patch_version test
-	make -C add_install_compatible_version test
-	make -C add_install_exact_version test
-	make -C add_nested_libraries_with_different_options_fails test
-	make -C add_nested_libraries_with_different_options_inherit test
-	make -C add_nested_libraries_with_same_options_succeeds test
-	make -C add_source_exact_version test
-	make -C add_two_libraries_with_different_option_truth_values_succeeds test
-	make -C add_two_libraries_with_different_options_fails test
-	make -C depend_on_B_and_DepC test
+test:
+	@(cd add_install_better_patch_version && "$(MAKE)" test)
+	@(cd add_install_compatible_version && "$(MAKE)" test)
+	@(cd add_install_exact_version && "$(MAKE)" test)
+	@(cd add_nested_libraries_with_different_options_fails && "$(MAKE)" test)
+	@(cd add_nested_libraries_with_different_options_inherit && "$(MAKE)" test)
+	@(cd add_nested_libraries_with_same_options_succeeds && "$(MAKE)" test)
+	@(cd add_source_exact_version && "$(MAKE)" test)
+	@(cd add_two_libraries_with_different_option_truth_values_succeeds && "$(MAKE)" test)
+	@(cd add_two_libraries_with_different_options_fails && "$(MAKE)" test)
+	@(cd depend_on_B_and_DepC && "$(MAKE)" test)

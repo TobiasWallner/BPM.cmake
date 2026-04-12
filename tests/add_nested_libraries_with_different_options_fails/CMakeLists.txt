@@ -1,15 +1,18 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(add_nested_libraries_with_different_options)
+project(add_nested_libraries_with_different_options_fails)
 
-if(NOT BPM_LOCATION)
-    message(FATAL_ERROR "Needed: -DBPM_LOCATION=path/to/BPM.cmake")
+if(NOT BPM_ROOT)
+    message(FATAL_ERROR "Needed: -DBPM_ROOT=path/to/BPM.cmake/")
+else()
+    string(REPLACE "\\" "/" BPM_ROOT "${BPM_ROOT}")
+    message(STATUS "BPM_ROOT: ${BPM_ROOT}")
 endif()
 
-include(${BPM_LOCATION})
+include(${BPM_ROOT}/BPM.cmake)
 
 
-BPMAddSourcePackage("../libraryB#=0.0.1" PACKAGES libB OPTIONS "BPM_LOCATION=../../../../../${BPM_LOCATION}" "LIB_OPTION=OFF")
-BPMAddSourcePackage("../libraryBoption#=0.0.1" PACKAGES libBopt OPTIONS "BPM_LOCATION=../../../../../${BPM_LOCATION}")
+BPMAddSourcePackage("${BPM_ROOT}/tests/libraryB#=0.0.1" PACKAGES libB OPTIONS "BPM_ROOT=${BPM_ROOT}" "LIB_OPTION=OFF")
+BPMAddSourcePackage("${BPM_ROOT}/tests/libraryBoption#=0.0.1" PACKAGES libBopt OPTIONS "BPM_ROOT=${BPM_ROOT}")
 
 BPMMakeAvailable()
