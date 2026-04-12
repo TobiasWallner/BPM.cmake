@@ -14,7 +14,7 @@ include(${BPM_ROOT}/BPM.cmake)
 BPMAddInstallPackage("${BPM_ROOT}/tests/libraryB#~0.0.1" PACKAGES libB OPTIONS "BPM_ROOT=${BPM_ROOT}")
 BPMAddInstallPackage("${BPM_ROOT}/tests/libraryDepC#^0.0.1" PACKAGES libDepC OPTIONS "BPM_ROOT=${BPM_ROOT}")
 
-BPMMakeAvailable()
+BPMMakeAvailable(VERBOSE)
 
 add_executable(main
     main.cpp
