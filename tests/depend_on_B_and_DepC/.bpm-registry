@@ -1,3 +1,0 @@
-NAME libraryB VERSION_RANGE 0.0.1-0.1.0 GIT_TAG ~0.0.1 GIT_REPOSITORY C:/SynologyDrive/c++libs/BPM.cmake/tests/depend_on_B_and_DepC/../../tests/libraryB TYPE INSTALL OPTIONS BPM_ROOT=C:/SynologyDrive/c++libs/BPM.cmake/tests/depend_on_B_and_DepC/../.. PACKAGES libB
-NAME libraryDepC VERSION_RANGE 0.0.1-0.1.0 GIT_TAG ^0.0.1 GIT_REPOSITORY C:/SynologyDrive/c++libs/BPM.cmake/tests/depend_on_B_and_DepC/../../tests/libraryDepC TYPE INSTALL OPTIONS BPM_ROOT=C:/SynologyDrive/c++libs/BPM.cmake/tests/depend_on_B_and_DepC/../.. PACKAGES libDepC
-

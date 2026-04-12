@@ -1,3 +1,0 @@
-NAME libraryB VERSION_RANGE 0.0.1-0.0.2 GIT_TAG =0.0.1 GIT_REPOSITORY C:/SynologyDrive/c++libs/BPM.cmake/tests/add_nested_libraries_with_different_options_inherit/../../tests/libraryB TYPE ADD_SUBDIR OPTIONS BPM_ROOT=C:/SynologyDrive/c++libs/BPM.cmake/tests/add_nested_libraries_with_different_options_inherit/../.. LIB_OPTION2=OFF PACKAGES libB
-NAME libraryBoption VERSION_RANGE 0.0.1-0.0.2 GIT_TAG =0.0.1 GIT_REPOSITORY C:/SynologyDrive/c++libs/BPM.cmake/tests/add_nested_libraries_with_different_options_inherit/../../tests/libraryBoption TYPE ADD_SUBDIR OPTIONS BPM_ROOT=C:/SynologyDrive/c++libs/BPM.cmake/tests/add_nested_libraries_with_different_options_inherit/../.. PACKAGES libBopt
-
