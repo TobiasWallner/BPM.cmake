@@ -134,6 +134,9 @@ Optional:
     - Option resolving:
       - Options that are explicitly set will be compared during the configuration and if the are conflicting (same name with different values) and error is generated
       - If options are not explicitly set a library is allowed to inherit that option from a different package that has set it explicitly
+  - `PRIVATE`: Libraries that are marked with `PRIVATE` will be added as a dependency to this project but not to other projects depending on it. Example usecases: 
+    - You want to add a library like `googletest` or `catch2` for testing, but do not want that users of your library have that testing library as a dependency, since it is not involved in your actual library. 
+    - You are using a library that is completely contained within your library and does not leek any API or sideeffects.
 
 Implicitly infered:
 - `NAME` The repository name will be inferred from the last path segment (ignoring trailing `.git`)
@@ -190,12 +193,12 @@ BPMAddSourcePackage(
 )
 ```
 
-Required:
+### Required:
 - `NAME`: The name of the package/library
 - `GIT_REPOSITORY`: Path to the git repository
 - `GIT_TAG`: Provide the git tag, version, version constraints, a commit-hash here.
 
-Optional:
+### Optional:
 - `PACKAGES`: A list of packages, from the library, that shall be integrated using `find_package`. Default is inferred from the package name. (only for `BPMAddInstallPackage()`)
 - `OPTIONS`: Optional list of options that will be passed when configuring the package.
   - Option resolving:
@@ -214,7 +217,7 @@ Make available will:
   - Optionally build and installs libraries.
   - Integrates libraries with `find_package` or `add_subdirectory`
   
-Optional Flags:
+### Optional Flags:
 - `NO_DOWNLOAD`: Will not download/clone/fetch repositories and only use what is already present
   - if the repository has not been mirrored yet --> fail instead of clone
   - if the repository might be out-of-date (triggered by '`>=`' and maybe '`^`', '`~`') --> skips the fetching (will result in faster configurations)
