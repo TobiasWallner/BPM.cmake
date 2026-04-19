@@ -2210,8 +2210,6 @@ function(BPMMakeAvailable)
         separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
         cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
 
-        message(STATUS "DEBUG: Making available: ${PKG_NAME}")
-
         # Prevent double adding through subdirectory packages
         get_property(PKG_MADE_AVAILABLE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_MADE_AVAILABLE")
         if(PKG_MADE_AVAILABLE)
@@ -2305,7 +2303,8 @@ function(BPMMakeAvailable)
             endif()
 
             if(NOT PKG_PACKAGES)
-                message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: No PACKAGES provided for INSTALL type")
+                message(WARNING "BPM [${PROJECT_NAME}:${PKG_NAME}]: No PACKAGES provided for INSTALL type - assuming package name from library name: PACKAGES=${PKG_NAME}")
+                set(PKG_PACKAGES "${PKG_NAME}")
             endif()
 
             bpm_try_find_packages("${PKG_NAME}" "${PKG_PACKAGES}" "${lib_install_dir}" all_packages_found)
