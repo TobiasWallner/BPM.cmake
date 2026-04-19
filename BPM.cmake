@@ -562,6 +562,22 @@ function(bpm_combine_options PKG_OPTIONS SEL_OPTIONS PKG_REQUIRED_FROM SEL_REQUI
 
 endfunction()
 
+function(not_equal_bool A B OUT)
+    if(A)
+        if(B)
+            set(${OUT} FALSE PARENT_SCOPE)
+        else()
+            set(${OUT} TRUE PARENT_SCOPE)
+        endif()
+    else()
+        if(B)
+            set(${OUT} TRUE PARENT_SCOPE)
+        else()
+            set(${OUT} FALSE PARENT_SCOPE)
+        endif()
+    endif()
+endfunction()
+
 function(bpm_add_package_to_registry PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG_OPTIONS PKG_PACKAGES PKG_VERSION_RANGE PKG_PRIVATE TYPE)
     if(NOT (("${TYPE}" STREQUAL "INSTALL") OR ("${TYPE}" STREQUAL "ADD_SUBDIR")))
         message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Internal error: TYPE (${TYPE}) should be 'INSTALL' or 'ADD_SUBDIR'")
@@ -629,8 +645,12 @@ function(bpm_add_package_to_registry PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG
 
         # check if there is an ignore conflict
         get_property(REGISTERED_PRIVATE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PRIVATE")
-        if(NOT REGISTERED_PRIVATE EQUAL PKG_PRIVATE)
-            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Package added, once with PRIVATE and once without.")
+
+        message(STATUS "DEBUG: REGISTERED_PRIVATE: ${REGISTERED_PRIVATE}")
+        message(STATUS "DEBUG: PKG_PRIVATE: ${PKG_PRIVATE}")
+        not_equal_bool("${REGISTERED_PRIVATE}" "${PKG_PRIVATE}" private_conflict)
+        if(private_conflict)
+            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Package added, once with 'PRIVATE' and once without.")
         endif()
 
     endif()
