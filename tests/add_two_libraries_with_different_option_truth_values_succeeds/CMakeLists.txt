@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(add_source_exact_version)
+project(add_two_libraries_with_different_option_truth_values_succeeds)
 
 
 if(NOT BPM_ROOT)

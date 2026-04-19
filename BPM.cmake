@@ -624,7 +624,7 @@ function(bpm_add_package_to_registry PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG
         # check if there is a type conflict
         get_property(REGISTERED_TYPE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_TYPE")
         if(NOT "${REGISTERED_TYPE}" STREQUAL "${TYPE}")
-            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Package added, onece as 'INSTALL' (find_package) and once as 'SOURCE' (add_subdirectory). Decide on one to prevent target-name conflicts.")
+            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Package added, once as 'INSTALL' (find_package) and once as 'SOURCE' (add_subdirectory). Decide on one to prevent target-name conflicts.")
         endif()
 
         # check if there is an ignore conflict

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(add_source_exact_version)
+project(add_two_libraries_with_different_options_fails)
 
 if(NOT BPM_ROOT)
     message(FATAL_ERROR "Needed: -DBPM_ROOT=path/to/BPM.cmake/")
