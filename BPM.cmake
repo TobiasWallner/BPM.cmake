@@ -630,7 +630,7 @@ function(bpm_add_package_to_registry PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG
         # check if there is an ignore conflict
         get_property(REGISTERED_PRIVATE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PRIVATE")
         if(NOT REGISTERED_PRIVATE EQUAL PKG_PRIVATE)
-            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Package added, onece with PRIVATE and once without.")
+            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Package added, once with PRIVATE and once without.")
         endif()
 
     endif()
