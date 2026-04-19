@@ -265,7 +265,7 @@ function(bpm_parse_short_dependency INPUT out_git_repo out_name out_tag)
 
 endfunction()
 
-function(bpm_parse_arguments INPUT out_name out_repo out_tag out_options out_packages out_version)
+function(bpm_parse_arguments INPUT out_name out_repo out_tag out_options out_packages out_version out_private)
     # clear variables to prevent accidental reuse in the loop
     unset(PKG_NAME)
     unset(PKG_GIT_REPOSITORY)
@@ -274,9 +274,11 @@ function(bpm_parse_arguments INPUT out_name out_repo out_tag out_options out_pac
     unset(PKG_OPTIONS)
     unset(PKG_VERSION)
     unset(PKG_VERSION_QUALIFIER)
+    unset(PKG_VERSION_RANGE)
+    unset(PKG_INGNORE)
 
     # Parse arguments in long form
-    set(options "")
+    set(options PRIVATE)
     set(oneValueArgs NAME GIT_REPOSITORY GIT_TAG)
     set(multiValueArgs PACKAGES OPTIONS)
     cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${INPUT})
@@ -320,6 +322,12 @@ function(bpm_parse_arguments INPUT out_name out_repo out_tag out_options out_pac
         bpm_parse_version_string("${PKG_NAME}" "${PKG_GIT_TAG}" PKG_VERSION)
     endif()
       
+    if(PKG_PRIVATE)
+        set(${out_private} TRUE PARENT_SCOPE)
+    else()
+        set(${out_private} FALSE PARENT_SCOPE)
+    endif()
+
     set(${out_name} ${PKG_NAME} PARENT_SCOPE)
     set(${out_repo} ${PKG_GIT_REPOSITORY} PARENT_SCOPE)
     set(${out_tag} ${PKG_GIT_TAG} PARENT_SCOPE)
@@ -554,7 +562,7 @@ function(bpm_combine_options PKG_OPTIONS SEL_OPTIONS PKG_REQUIRED_FROM SEL_REQUI
 
 endfunction()
 
-function(bpm_add_package_to_registry PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG_OPTIONS PKG_PACKAGES PKG_VERSION_RANGE TYPE)
+function(bpm_add_package_to_registry PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG_OPTIONS PKG_PACKAGES PKG_VERSION_RANGE PKG_PRIVATE TYPE)
     if(NOT (("${TYPE}" STREQUAL "INSTALL") OR ("${TYPE}" STREQUAL "ADD_SUBDIR")))
         message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Internal error: TYPE (${TYPE}) should be 'INSTALL' or 'ADD_SUBDIR'")
     endif()
@@ -577,6 +585,7 @@ function(bpm_add_package_to_registry PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_TAG" "${PKG_GIT_TAG}") # TODO rename to constraint
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_GIT_REPOSITORY" "${PKG_GIT_REPOSITORY}")
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES" "${PKG_PACKAGES}")
+        set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PRIVATE" "${PKG_PRIVATE}")
         set_property(GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_TYPE" "${TYPE}")
 
         # sort options
@@ -618,6 +627,12 @@ function(bpm_add_package_to_registry PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG
             message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Package added, onece as 'INSTALL' (find_package) and once as 'SOURCE' (add_subdirectory). Decide on one to prevent target-name conflicts.")
         endif()
 
+        # check if there is an ignore conflict
+        get_property(REGISTERED_PRIVATE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PRIVATE")
+        if(NOT REGISTERED_PRIVATE EQUAL PKG_PRIVATE)
+            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Package added, onece with PRIVATE and once without.")
+        endif()
+
     endif()
 
     set_property(GLOBAL PROPERTY "BPM_${PKG_NAME}_ADDED" TRUE)
@@ -632,9 +647,11 @@ function(BPMAddInstallPackage)
 
     bpm_parse_arguments("${ARGN}"
         PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG 
-        PKG_OPTIONS PKG_PACKAGES PKG_VERSION_RANGE)
+        PKG_OPTIONS PKG_PACKAGES PKG_VERSION_RANGE PKG_PRIVATE)
 
-    bpm_add_package_to_registry("${PKG_NAME}" "${PKG_GIT_REPOSITORY}" "${PKG_GIT_TAG}" "${PKG_OPTIONS}" "${PKG_PACKAGES}" "${PKG_VERSION_RANGE}" "INSTALL")
+    bpm_add_package_to_registry(
+        "${PKG_NAME}" "${PKG_GIT_REPOSITORY}" "${PKG_GIT_TAG}" "${PKG_OPTIONS}" 
+        "${PKG_PACKAGES}" "${PKG_VERSION_RANGE}" "${PKG_PRIVATE}" "INSTALL")
 
 endfunction()
 
@@ -646,9 +663,11 @@ function(BPMAddSourcePackage)
 
     bpm_parse_arguments("${ARGN}"
         PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG 
-        PKG_OPTIONS PKG_PACKAGES PKG_VERSION_RANGE)
+        PKG_OPTIONS PKG_PACKAGES PKG_VERSION_RANGE PKG_PRIVATE)
 
-    bpm_add_package_to_registry("${PKG_NAME}" "${PKG_GIT_REPOSITORY}" "${PKG_GIT_TAG}" "${PKG_OPTIONS}" "${PKG_PACKAGES}" "${PKG_VERSION_RANGE}" "ADD_SUBDIR")
+    bpm_add_package_to_registry(
+        "${PKG_NAME}" "${PKG_GIT_REPOSITORY}" "${PKG_GIT_TAG}" "${PKG_OPTIONS}" 
+        "${PKG_PACKAGES}" "${PKG_VERSION_RANGE}" "${PKG_PRIVATE}" "ADD_SUBDIR")
 
 endfunction()
 
@@ -1011,9 +1030,10 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                     string(REPLACE ";" " " options_ "${decision_${decision_counter}_options}")
                     set(options_entry "OPTIONS ${options_}")
                 endif()
+                set(packages_entry)
                 if(decision_${decision_counter}_packages)
                     string(REPLACE ";" " " packages_ "${decision_${decision_counter}_packages}")
-                    set(packages_entry "OPTIONS ${options_}")
+                    set(packages_entry "PACKAGES ${packages_}")
                 endif()
                 set(entry "NAME ${decision_${decision_counter}_pkg_name} VERSION ${top_version} GIT_TAG ${decision_${decision_counter}_git_tag} GIT_REPO ${decision_${decision_counter}_git_repo} TYPE ${decision_${decision_counter}_type} REQUIRED_FROM ${PKG_REQUIRED_FROM} ${options_entry} ${packages_entry}")
                 math(EXPR prev_decision_counter "${decision_counter} - 1")
@@ -1055,18 +1075,18 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                 endif()
                 string(APPEND logging "\n${msg}")
 
-                set(decision_${decision_counter}_todo_list)
-                set(decision_${decision_counter}_selected_list)
-                set(decision_${decision_counter}_pkg_name)
-                set(decision_${decision_counter}_version)
-                set(decision_${decision_counter}_range)
-                set(decision_${decision_counter}_tag_wheel)
-                set(decision_${decision_counter}_git_tag)
-                set(decision_${decision_counter}_git_repo)
-                set(decision_${decision_counter}_type)
-                set(decision_${decision_counter}_required_from)
-                set(decision_${decision_counter}_options)
-                set(decision_${decision_counter}_packages)
+                unset(decision_${decision_counter}_todo_list)
+                unset(decision_${decision_counter}_selected_list)
+                unset(decision_${decision_counter}_pkg_name)
+                unset(decision_${decision_counter}_version)
+                unset(decision_${decision_counter}_range)
+                unset(decision_${decision_counter}_tag_wheel)
+                unset(decision_${decision_counter}_git_tag)
+                unset(decision_${decision_counter}_git_repo)
+                unset(decision_${decision_counter}_type)
+                unset(decision_${decision_counter}_required_from)
+                unset(decision_${decision_counter}_options)
+                unset(decision_${decision_counter}_packages)
 
                 # pop
                 math(EXPR decision_counter "${decision_counter} - 1")
@@ -1160,6 +1180,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
 
                         string(REPLACE ";" " " combined_options_ "${combined_options}")
                         set(pkg_options_entry "OPTIONS ${combined_options_}")
+                        set(pkg_packages_entry)
                         if(combined_packages)
                             # turn list to multi arg list
                             string(REPLACE ";" " " combined_packages_ "${combined_packages}")
@@ -1212,16 +1233,24 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                     set(pkg_req_version)
                     set(sel_req_version)
                     foreach(_sel IN LISTS decision_${decision_counter}_selected_list)
+                        set(REQ_NAME)
+                        set(REQ_VERSION)
+
                         set(options)
                         set(oneValueArgs NAME VERSION)
                         set(multiValueArgs)
                         separate_arguments(_sel_tokens UNIX_COMMAND "${_sel}")
                         cmake_parse_arguments(REQ "${options}" "${oneValueArgs}" "${multiValueArgs}" ${_sel_tokens})
+                        
                         if("${PKG_REQUIRED_FROM}" STREQUAL "${REQ_NAME}")
                             set(pkg_req_version "${REQ_VERSION}")
                         endif()
                         if("${SEL_REQUIRED_FROM}" STREQUAL "${REQ_NAME}")
                             set(sel_req_version "${REQ_VERSION}")
+                        endif()
+
+                        if(pkg_req_version AND sel_req_version)
+                            break()
                         endif()
                     endforeach()
                     # print error message
@@ -1427,6 +1456,8 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
             string(REPLACE ";" " " PKG_OPTIONS_ "${PKG_OPTIONS}")
             set(pkg_options_entry "OPTIONS ${PKG_OPTIONS_}")
         endif()
+
+        set(pkg_packages_entry)
         if(PKG_PACKAGES)
             # turn list to multi arg list
             string(REPLACE ";" " " PKG_PACKAGES_ "${PKG_PACKAGES}")
@@ -1573,10 +1604,13 @@ function(bpm_find_test_example_options cmake_file result_var)
     file(READ "${cmake_file}" content)
 
     set(test_regex "[Tt][Ee][Ss][Tt]")
+    set(tests_regex "[Tt][Ee][Ss][Tt][Ss]")
+    set(testing_regex "[Tt][Ee][Ss][Tt][Ii][Nn][Gg]")
     set(example_regex "[Ee][Xx][Aa][Mm][Pp][Ll][Ee]")
-    set(test_or_example_regex "(${test_regex}|${example_regex})")
+    set(examples_regex "[Ee][Xx][Aa][Mm][Pp][Ll][Ee][Ss]")
+    set(test_or_example_regex "(${test_regex}|${tests_regex}|${testing_regex}|${example_regex})")
 
-    set(regex_str "option[ \t\r\n]*\\([ \t\r\n]*([A-Za-z0-9_]*${test_or_example_regex}[A-Za-z0-9_]*)")
+    set(regex_str "option[ \t\r\n]*\\([ \t\r\n]*(([A-Za-z0-9_]*[-_])?${test_or_example_regex}([-_][A-Za-z0-9_]*)?)")
 
     # Find all option(...) occurrences
     string(REGEX MATCHALL
@@ -1745,8 +1779,16 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
                 set(quiet "OUTPUT_QUIET")
             endif()
                 
+            set(config_arg "-DCMAKE_BUILD_TYPE=Release")
+            if(CMAKE_CONFIGURATION_TYPES)
+                set(config_arg)
+            endif()
 
             # TODO: Optimisation: skip instead of re-configuring
+            if(BPM_VERBOSE)
+                message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: execute command: ${CMAKE_COMMAND} -S \"${lib_src_dir}\" -B \"${lib_build_dir}\" -G \"${CMAKE_GENERATOR}\" ${config_arg} ${bpm_cache_arg} -DCMAKE_INSTALL_PREFIX=\"${lib_install_dir}\" ${arg_position_independent_code} ${arg_build_shared_libs} ${cmake_build_args} ${toolchain_args} ${cmake_disable_test_example_flags} ${dependencies_arg} ${verbose_arg}")
+            endif()
+
             execute_process(
                 COMMAND ${CMAKE_COMMAND}
                 -S "${lib_src_dir}"
@@ -1756,7 +1798,7 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
                 "-DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
                 "-DCMAKE_GENERATOR=${CMAKE_GENERATOR}"
 
-                -DCMAKE_BUILD_TYPE=Release
+                ${config_arg}
 
                 ${bpm_cache_arg}
                 "-DCMAKE_INSTALL_PREFIX=${lib_install_dir}"
@@ -1796,8 +1838,18 @@ function(bpm_build_library lib_name library_build_dir lib_build_lock_file)
         set(parallel ${CMAKE_BUILD_PARALLEL_LEVEL})
     endif()
 
+    set(config_arg)
+    if(CMAKE_CONFIGURATION_TYPES)
+        set(config_arg --config Release)
+    endif()
+
     file(LOCK "${lib_build_lock_file}")
-        execute_process(COMMAND ${CMAKE_COMMAND} --build "${library_build_dir}" --config Release --parallel ${parallel} RESULT_VARIABLE res)
+        if(BPM_VERBOSE)
+            message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: execute command: ${CMAKE_COMMAND} --build \"${library_build_dir}\" ${config_arg} --parallel ${parallel}")
+            execute_process(COMMAND ${CMAKE_COMMAND} --build "${library_build_dir}" ${config_arg} --parallel ${parallel} RESULT_VARIABLE res OUTPUT_QUIET)
+        else()
+            execute_process(COMMAND ${CMAKE_COMMAND} --build "${library_build_dir}" ${config_arg} --parallel ${parallel} RESULT_VARIABLE res)
+        endif()
     file(LOCK "${lib_build_lock_file}" RELEASE)
 
     if(res EQUAL 0)
@@ -1817,14 +1869,21 @@ function(bpm_install_library lib_name lib_build_dir lib_install_dir lib_build_lo
         message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Installing")
     endif()
 
+    set(config_arg)
+    if(CMAKE_CONFIGURATION_TYPES)
+        set(config_arg --config Release)
+    endif()
+
     # lockorder: install -> build -> source -> mirror
     file(LOCK "${lib_install_lock_file}")
         file(LOCK "${lib_build_lock_file}")
             if(BPM_VERBOSE)
-                execute_process(COMMAND ${CMAKE_COMMAND} --install ${lib_build_dir} --prefix ${lib_install_dir} --config Release RESULT_VARIABLE res)
+                message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: execute command: ${CMAKE_COMMAND} --install ${lib_build_dir} --prefix ${lib_install_dir} ${config_arg}")
+                execute_process(COMMAND ${CMAKE_COMMAND} --install ${lib_build_dir} --prefix ${lib_install_dir} ${config_arg} RESULT_VARIABLE res)
             else()
-                execute_process(COMMAND ${CMAKE_COMMAND} --install ${lib_build_dir} --prefix ${lib_install_dir} --config Release RESULT_VARIABLE res OUTPUT_QUIET)
+                execute_process(COMMAND ${CMAKE_COMMAND} --install ${lib_build_dir} --prefix ${lib_install_dir} ${config_arg} RESULT_VARIABLE res OUTPUT_QUIET ERROR_QUIET)
             endif()
+            
         file(LOCK "${lib_build_lock_file}" RELEASE)
     file(LOCK "${lib_install_lock_file}" RELEASE)
 
@@ -1834,15 +1893,33 @@ function(bpm_install_library lib_name lib_build_dir lib_install_dir lib_build_lo
         endif()
     else() 
         # clean install on error
-        file(REMOVE_RECURSE "${library_install_dir}")
+        file(REMOVE_RECURSE "${lib_install_dir}")
         message(FATAL_ERROR "BPM [${PROJECT_NAME}:${lib_name}]: Installing - failed")
     endif()
 
 endfunction()
 
+function(bpm_installed_packages PGK_NAME lib_install_dir OUT_PACKAGES)
+    if(NOT EXISTS ${lib_install_dir})
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Install dir '${lib_install_dir}' does not exist.")
+        set(${OUT_PACKAGES} "" PARENT_SCOPE)
+        return()
+    endif()
+    file(GLOB_RECURSE config_files "${lib_install_dir}/*Config.cmake" "${lib_install_dir}/*config.cmake")
+    set(installed_packages)
+    if(config_files)
+        foreach(config_file IN LISTS config_files)
+            get_filename_component(config_dir "${config_file}" DIRECTORY)
+            get_filename_component(package_name "${config_dir}" NAME)
+            list(APPEND installed_packages "${package_name}")
+        endforeach()
+    endif()
+    set(${OUT_PACKAGES} "${installed_packages}" PARENT_SCOPE)
+endfunction()
+
 function(bpm_show_installed_packages PKG_NAME lib_install_dir)
     if(NOT EXISTS ${lib_install_dir})
-        message()
+        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Install dir '${lib_install_dir}' does not exist.")
         return()
     endif()
     file(GLOB_RECURSE config_files "${lib_install_dir}/*Config.cmake" "${lib_install_dir}/*config.cmake")
@@ -2009,6 +2086,7 @@ function(BPMMakeAvailable)
         get_property(TYPE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_TYPE")
         get_property(OPTIONS GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS")
         get_property(PKG_PACKAGES GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PACKAGES")
+        get_property(PKG_PRIVATE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PRIVATE")
 
         string(REPLACE ";" "-" SAFE_VERSION_RANGE "${VERSION_RANGE}")
 
@@ -2026,7 +2104,11 @@ function(BPMMakeAvailable)
 
         set(entry "NAME ${PKG_NAME} VERSION_RANGE ${SAFE_VERSION_RANGE} GIT_TAG ${GIT_TAG} GIT_REPOSITORY ${GIT_REPOSITORY} TYPE ${TYPE} ${options_entry} ${packages_entry}")
         string(APPEND registry_content "${entry};")
-        string(APPEND registry_file_content "${entry}\n")
+        
+        # Do not add the entry to the external registry file if the package is marked as private, to prevent leaking private dependencies to other projects that use this project as a dependency
+        if(NOT PKG_PRIVATE)
+            string(APPEND registry_file_content "${entry}\n")
+        endif()
 
     endforeach()
     
@@ -2072,18 +2154,18 @@ function(BPMMakeAvailable)
 
             message(STATUS "  + Resolved: ${PKG_NAME}#${PKG_VERSION}")
             if(BPM_VERBOSE)
-                message(STATUS "    + GIT_REPO: ${PKG_GIT_REPO}")
+                message(STATUS "    > GIT_REPO: ${PKG_GIT_REPO}")
                 if(PKG_OPTIONS)
                     message(STATUS "    > OPTIONS:")
                     foreach(opt IN LISTS PKG_OPTIONS)
-                        message(STATUS "    - ${opt}")
+                        message(STATUS "      - ${opt}")
                     endforeach()
                 endif()
 
                 if(PKG_PACKAGES)
                     message(STATUS "    > PACKAGES:")
                     foreach(p IN LISTS PKG_PACKAGES)
-                        message(STATUS "    - ${p}")
+                        message(STATUS "      - ${p}")
                     endforeach()
                 endif()
             endif()
@@ -2116,6 +2198,8 @@ function(BPMMakeAvailable)
         set(multiValueArgs OPTIONS PACKAGES)
         separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
         cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
+
+        message(STATUS "DEBUG: Making available: ${PKG_NAME}")
 
         # Prevent double adding through subdirectory packages
         get_property(PKG_MADE_AVAILABLE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_MADE_AVAILABLE")
@@ -2272,7 +2356,9 @@ function(BPMMakeAvailable)
                 endif()
 
                 if(NOT all_packages_found)
-                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Find packages '${PKG_PACKAGES}' - failed after (re-)install")
+                    bpm_installed_packages("${PKG_NAME}" "${lib_install_dir}" installed_packages)
+                    string(REPLACE ";" ", " installed_packages_string "${installed_packages}")
+                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Find packages '${PKG_PACKAGES}' - failed after (re-)install. Available packages: ${installed_packages_string}. Tip: change your `BPMAddInstallPackages` calls if necessary.")
                 endif()
             endif()
 
