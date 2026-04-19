@@ -1363,12 +1363,19 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
 
                 # fetch if upper version bound is inf or tag is not contained
                 if(NOT contains)
-                    message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch for updates")
                     if(BPM_NO_DOWNLOAD)
-                        message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch - skipped due to `NO_DOWNLOAD`")
+                        if(NOT fetch_skipped_due_to_no_downloads)
+                            message(STATUS "BPM [${PROJECT_NAME}]: mirrors might be out-of-date - fetch - skipped due to `NO_DOWNLOAD`")
+                        endif()
+                        set(fetch_skipped_due_to_no_downloads TRUE) # to avoid multiple warnings
                     elseif(BPM_NO_DOWNLOAD_UPDATES)
-                        message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch - skipped due to `BPM_NO_DOWNLOAD_UPDATES`")
+                        if(NOT fetch_updates_skipped_due_to_no_download_updates)
+                            message(STATUS "BPM [${PROJECT_NAME}]: mirrors might be out-of-date - fetch - skipped due to `BPM_NO_DOWNLOAD_UPDATES`")
+                        endif()
+                        set(fetch_updates_skipped_due_to_no_download_updates TRUE) # to avoid multiple warnings
                     else()
+                        message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: mirror might be out-of-date - fetch for updates")
+
                         file(LOCK "${mirror_lock_file}")
                             if(BPM_VERBOSE)
                                 execute_process(COMMAND git --git-dir "${mirror_dir}" fetch --tags --prune RESULT_VARIABLE res)
@@ -1734,6 +1741,10 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
     set(cmake_disable_test_example_flags "")
 
     foreach(flag ${test_example_options})
+        message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Found test/example option: ${flag} - disabling it for the build")
+        #TODO: give the user the option to not disable test/example options
+        #TODO: give check against the provided options to not disable test/example options that are explicitly enabled by the user
+        #TODO: move this part right after the dependency solving and before the manifest creation, so that all options are correctly tracked
         list(APPEND cmake_disable_test_example_flags "-D${flag}=OFF")
     endforeach()
 
