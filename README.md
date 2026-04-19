@@ -9,7 +9,7 @@ BPM.cmake is here to make it easy to include libraries into your C/C++ projects.
 
 It is a **CMake-native package manager and dependency solver** for CMake-based git-repositories.
 - resolves version and constraints across your dependency graph (yes, even diamond dependencies)
-- resolves package optinos across your dependency graph
+- resolves package options across your dependency graph
 - caches repositories, sources, builds and installations reproducibly
 - separates builds and installations by versions, toolchains, environments and other build options
 - integrate dependencies either as installations or source-only libraries.
