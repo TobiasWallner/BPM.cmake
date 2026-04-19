@@ -1,2 +1,0 @@
-NAME BPM_external_repo VERSION_RANGE 0.7.0-0.8.0 GIT_TAG ^v0.7.0 GIT_REPOSITORY ../BPM_external_repo TYPE ADD_SUBDIR  PACKAGES greet
-
