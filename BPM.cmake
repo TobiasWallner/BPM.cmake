@@ -223,14 +223,7 @@ function(bpm_parse_short_dependency INPUT out_git_repo out_name out_tag)
     string(REGEX MATCH "^([^#]+)(#(.+))?$" _ "${INPUT}")
 
     set(FULL_PATH "${CMAKE_MATCH_1}")
-    if(BPM_VERBOSE)
-        message(STATUS "${INPUT} --> Full Path: ${FULL_PATH}")
-    endif()
-
     set(VERSION_PART "${CMAKE_MATCH_3}")
-    if(BPM_VERBOSE)
-        message(STATUS "${INPUT} --> Full Path: ${VERSION_PART}")
-    endif()
 
     # ------------------------------------------------------------
     # Extract repository name (after last '/' or '\')
@@ -1637,27 +1630,24 @@ function(bpm_find_test_example_options cmake_file result_var)
     set(examples_regex "[Ee][Xx][Aa][Mm][Pp][Ll][Ee][Ss]")
     set(test_or_example_regex "(${test_regex}|${tests_regex}|${testing_regex}|${example_regex})")
 
-    set(regex_str "option[ \t\r\n]*\\([ \t\r\n]*(([A-Za-z0-9_]*[-_])?${test_or_example_regex}([-_][A-Za-z0-9_]*)?)")
-
-    # Find all option(...) occurrences
-    string(REGEX MATCHALL
-        "${regex_str}"
-        matches
-        "${content}"
-    )
+    # Find all option(...) or if(...) blocks
+    string(REGEX MATCHALL "(option|if)[ \t\r\n]*\\([^)]+\\)" blocks "${content}")
 
     set(found_options "")
 
-    foreach(m ${matches})
-        string(REGEX REPLACE
-            "${regex_str}"
-            "\\1"
-            opt
-            "${m}"
-        )
-        list(APPEND found_options "${opt}")
+    foreach(block ${blocks})
+        # Extract all identifiers from the block (alphanumeric + underscores, starting with letter or underscore)
+        string(REGEX MATCHALL "[A-Za-z_][A-Za-z0-9_]*" identifiers "${block}")
+        
+        foreach(id ${identifiers})
+            # Check if the identifier matches the test/example pattern
+            if("${id}" MATCHES "(^|[-_ \t\\(\"])${test_or_example_regex}([-_ \t\\)\"]|$)")
+                list(APPEND found_options "${id}")
+            endif()
+        endforeach()
     endforeach()
 
+    list(REMOVE_DUPLICATES found_options)
     set(${result_var} "${found_options}" PARENT_SCOPE)
 endfunction()
 
@@ -1756,16 +1746,26 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
         endforeach()
     endif()
 
+    set(test_example_options)
     # parse the libraries cmake lists for flags that enable tests and disable them
     bpm_find_test_example_options_r("${lib_src_dir}" test_example_options)
-    set(cmake_disable_test_example_flags "")
+    list(LENGTH test_example_options test_example_options_length)
 
+    set(cmake_disable_test_example_flags)
     foreach(flag ${test_example_options})
-        message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Found test/example option: ${flag} - disabling it for the build")
-        #TODO: give the user the option to not disable test/example options
-        #TODO: give check against the provided options to not disable test/example options that are explicitly enabled by the user
-        #TODO: move this part right after the dependency solving and before the manifest creation, so that all options are correctly tracked
-        list(APPEND cmake_disable_test_example_flags "-D${flag}=OFF")
+        # check if option is already explicitly enabled
+        set(found FALSE)
+        foreach(opt IN LISTS options)
+            if(MATCH opt "^[ \t]*${flag}[ \t]*=[ \t]*(ON|TRUE|1)$[ \t]*")
+                set(found TRUE)
+                break()        
+            endif()
+        endforeach()
+
+        if(NOT found)
+            message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Found test/example option. Disabiling: '${flag}'")
+            list(APPEND cmake_disable_test_example_flags "-D${flag}=OFF")
+        endif()
     endforeach()
 
     set(toolchain_args)
@@ -1877,9 +1877,9 @@ function(bpm_build_library lib_name library_build_dir lib_build_lock_file)
     file(LOCK "${lib_build_lock_file}")
         if(BPM_VERBOSE)
             message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: execute command: ${CMAKE_COMMAND} --build \"${library_build_dir}\" ${config_arg} --parallel ${parallel}")
-            execute_process(COMMAND ${CMAKE_COMMAND} --build "${library_build_dir}" ${config_arg} --parallel ${parallel} RESULT_VARIABLE res OUTPUT_QUIET)
-        else()
             execute_process(COMMAND ${CMAKE_COMMAND} --build "${library_build_dir}" ${config_arg} --parallel ${parallel} RESULT_VARIABLE res)
+        else()
+            execute_process(COMMAND ${CMAKE_COMMAND} --build "${library_build_dir}" ${config_arg} --parallel ${parallel} RESULT_VARIABLE res OUTPUT_QUIET)
         endif()
     file(LOCK "${lib_build_lock_file}" RELEASE)
 
@@ -2322,8 +2322,11 @@ function(BPMMakeAvailable)
                 message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Make Available (INSTALL): ${PKG_NAME}#${PKG_VERSION} : ${PKG_GIT_REPO}")
             endif()
 
+            
             if(NOT PKG_PACKAGES)
-                message(WARNING "BPM [${PROJECT_NAME}:${PKG_NAME}]: No PACKAGES provided for INSTALL type - assuming package name from library name: PACKAGES=${PKG_NAME}")
+                if(BPM_VERBOSE)
+                    message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: No PACKAGES provided for INSTALL type - assuming package name from library name: PACKAGES=${PKG_NAME}")
+                endif()
                 set(PKG_PACKAGES "${PKG_NAME}")
             endif()
 
