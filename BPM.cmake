@@ -2479,8 +2479,6 @@ function(BPMCreateInstallPackage)
         RUNTIME DESTINATION bin
         INCLUDES DESTINATION include
     )
-
-    set_target_properties(${ARG_PACKAGE_NAME}_export_set PROPERTIES EXPORT_NAME ${EXPORT_NAME})
     
     set(files_matching "")
     foreach(m IN LISTS ARG_HEADER_FILES_MATCHING)
