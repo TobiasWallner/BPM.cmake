@@ -2441,52 +2441,54 @@ function(BPMCreateInstallPackage)
 
     if(ARGC EQUAL 1)
         # infere everything from the passed library target
-        set(PKG_NAME ${ARGV0})
-        set(PKG_NAMESPACE ${ARGV0})
-        set(PKG_LIBRARIES ${ARGV0})
+        set(ARG_PACKAGE_NAME ${ARGV0})
+        set(ARG_EXPORT_NAMESPACE ${ARGV0})
+        set(ARG_TARGETS ${ARGV0})
     else()
         # provide specific arguments
         set(options "")
-        set(oneValueArgs NAME NAMESPACE)
-        set(multiValueArgs LIBRARIES PUBLIC_INCLUDE_DIRS HEADER_FILES_MATCHING)
-        cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+        set(oneValueArgs PACKAGE_NAME NAMESPACE)
+        set(multiValueArgs TARGETS PUBLIC_INCLUDE_DIRS HEADER_FILES_MATCHING)
+        cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
     endif()
 
-    if(NOT PKG_NAME)
+    if(NOT ARG_PACKAGE_NAME)
         message(FATAL_ERROR "BPMInstall: No NAME provided for the package")
     endif()
     
-    if(NOT PKG_LIBRARIES)
-        message(FATAL_ERROR "BPMInstall [${PKG_NAME}]: No LIBRARIES provided for the package")
+    if(NOT ARG_TARGETS)
+        message(FATAL_ERROR "BPMInstall [${ARG_PACKAGE_NAME}]: No TARGETS provided for the package")
     endif()
     
-    if(NOT PKG_NAMESPACE)
-        set(PKG_NAMESPACE ${PROJECT_NAME})
+    if(NOT ARG_EXPORT_NAMESPACE)
+        set(ARG_EXPORT_NAMESPACE ${PROJECT_NAME})
     endif()
 
-    if(NOT PKG_HEADER_FILES_MATCHING)
-        set(PKG_HEADER_FILES_MATCHING "*.h" "*.hh" "*.hpp" "*.hxx")
+    if(NOT ARG_HEADER_FILES_MATCHING)
+        set(ARG_HEADER_FILES_MATCHING "*.h" "*.hh" "*.hpp" "*.hxx")
     endif()
 
-    if(NOT PKG_PUBLIC_INCLUDE_DIRS)
-        set(PKG_PUBLIC_INCLUDE_DIRS "include")
+    if(NOT ARG_PUBLIC_INCLUDE_DIRS)
+        set(ARG_PUBLIC_INCLUDE_DIRS "include")
     endif()
 
-    install(TARGETS ${PKG_LIBRARIES}
-        EXPORT ${PKG_NAME}_export_set
+    install(TARGETS ${ARG_TARGETS}
+        EXPORT ${ARG_PACKAGE_NAME}_export_set
         ARCHIVE DESTINATION lib
         LIBRARY DESTINATION lib
         RUNTIME DESTINATION bin
         INCLUDES DESTINATION include
     )
+
+    set_target_properties(${ARG_PACKAGE_NAME}_export_set PROPERTIES EXPORT_NAME ${EXPORT_NAME})
     
     set(files_matching "")
-    foreach(m IN LISTS PKG_HEADER_FILES_MATCHING)
+    foreach(m IN LISTS ARG_HEADER_FILES_MATCHING)
         LIST(APPEND files_matching "PATTERN" )
         LIST(APPEND files_matching "${m}")
     endforeach()
     
-    foreach(dir IN LISTS PKG_PUBLIC_INCLUDE_DIRS)
+    foreach(dir IN LISTS ARG_PUBLIC_INCLUDE_DIRS)
         # add '/' to the end of the string if it does not have one already
         if(NOT dir MATCHES "/$")
             set(dir "${dir}/")
@@ -2500,26 +2502,26 @@ function(BPMCreateInstallPackage)
         )
     endforeach()
 
-    install(EXPORT ${PKG_NAME}_export_set
-        FILE "${PKG_NAME}Targets.cmake"
-        NAMESPACE "${PKG_NAMESPACE}::"
-        DESTINATION "lib/cmake/${PKG_NAME}"
+    install(EXPORT ${ARG_PACKAGE_NAME}_export_set
+        FILE "${ARG_PACKAGE_NAME}Targets.cmake"
+        NAMESPACE "${ARG_EXPORT_NAMESPACE}::"
+        DESTINATION "lib/cmake/${ARG_PACKAGE_NAME}"
     )
 
-    set(config_file_in "${CMAKE_CURRENT_BINARY_DIR}/${PKG_NAME}Config.cmake.in")
-    set(config_file "${CMAKE_CURRENT_BINARY_DIR}/${PKG_NAME}Config.cmake")
-    set(version_file "${CMAKE_CURRENT_BINARY_DIR}/${PKG_NAME}ConfigVersion.cmake")
-    file(WRITE "${config_file_in}" "@PACKAGE_INIT@\n\ninclude(\"\${CMAKE_CURRENT_LIST_DIR}/${PKG_NAME}Targets.cmake\")\n")
+    set(config_file_in "${CMAKE_CURRENT_BINARY_DIR}/${ARG_PACKAGE_NAME}Config.cmake.in")
+    set(config_file "${CMAKE_CURRENT_BINARY_DIR}/${ARG_PACKAGE_NAME}Config.cmake")
+    set(version_file "${CMAKE_CURRENT_BINARY_DIR}/${ARG_PACKAGE_NAME}ConfigVersion.cmake")
+    file(WRITE "${config_file_in}" "@PACKAGE_INIT@\n\ninclude(\"\${CMAKE_CURRENT_LIST_DIR}/${ARG_PACKAGE_NAME}Targets.cmake\")\n")
 
     configure_package_config_file(
         "${config_file_in}"
         "${config_file}"
-        INSTALL_DESTINATION "lib/cmake/${PKG_NAME}"
+        INSTALL_DESTINATION "lib/cmake/${ARG_PACKAGE_NAME}"
     )
 
     install(FILES
         "${config_file}"
-        DESTINATION "lib/cmake/${PKG_NAME}"
+        DESTINATION "lib/cmake/${ARG_PACKAGE_NAME}"
     )
 
     if(PROJECT_VERSION)
@@ -2531,7 +2533,7 @@ function(BPMCreateInstallPackage)
 
         install(FILES
             "${version_file}"
-            DESTINATION "lib/cmake/${PKG_NAME}"
+            DESTINATION "lib/cmake/${ARG_PACKAGE_NAME}"
         )
     endif()
 
