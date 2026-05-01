@@ -1756,7 +1756,7 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
         # check if option is already explicitly enabled
         set(found FALSE)
         foreach(opt IN LISTS options)
-            if(MATCH opt "^[ \t]*${flag}[ \t]*=[ \t]*(ON|TRUE|1)$[ \t]*")
+            if(opt MATCHES "^[ \t]*${flag}[ \t]*=[ \t]*(ON|TRUE|1)$[ \t]*")
                 set(found TRUE)
                 break()        
             endif()
