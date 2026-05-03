@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.21)
 
 function(bpm_load_env_var VAR_NAME DEFAULT)
     # VAR_NAME: the variable name to check (e.g., "BPM_CLEAN_INSTALL")
