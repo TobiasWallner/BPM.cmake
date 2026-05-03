@@ -378,7 +378,7 @@ function(path_normalise INPUT OUTPUT)
     string(REGEX REPLACE "\\.git$" "" path "${path}")
 
     # remove trailing slash
-    string(REGEX REPLACE "/$" "" path "${path}")
+    string(REGEX REPLACE "/+$" "" path "${path}")
 
     # Decide whether this is a local filesystem path.
     set(is_filesystem_path FALSE)
@@ -397,7 +397,7 @@ function(path_normalise INPUT OUTPUT)
     if(is_filesystem_path)
         file(REAL_PATH "${path}" path BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
         
-        string(REGEX REPLACE "/$" "" path "${path}")
+        string(REGEX REPLACE "/+$" "" path "${path}")
         
         # Windows paths should compare case-insensitively
         if(WIN32)
@@ -409,7 +409,7 @@ function(path_normalise INPUT OUTPUT)
     else()
         # ssh form: git@host:user/repo
         if(path MATCHES "^[^@]+@([^:]+):(.+)$")
-            string(REGEX REPLACE "^[^@]+@([^:]+):(.+)$" "\\1/\\2" path "${path}")
+            string(REGEX REPLACE "^[^@]+@([^:]+):(.+)$" "web://\\1/\\2" path "${path}")
         endif()
 
         # ssh://git@host/user/repo
