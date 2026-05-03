@@ -372,7 +372,7 @@ function(path_normalise INPUT OUTPUT)
     file(TO_CMAKE_PATH "${path}" path)
 
     # remove trailing whitespace
-    string(STRIP "${url}" path)
+    string(STRIP "${path}" path)
 
     # remove trailing .git
     string(REGEX REPLACE "\\.git$" "" path "${path}")
@@ -394,17 +394,17 @@ function(path_normalise INPUT OUTPUT)
         set(is_filesystem_path TRUE)
     endif()
 
-    if(is_path)
+    if(is_filesystem_path)
         file(REAL_PATH "${path}" path BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
         
-        string(REGEX REPLACE "/$" "" value "${value}")
+        string(REGEX REPLACE "/$" "" path "${path}")
         
         # Windows paths should compare case-insensitively
         if(WIN32)
-            string(TOLOWER "${value}" value)
+            string(TOLOWER "${path}" path)
         endif()
 
-        set(${OUTPUT} "${value}" PARENT_SCOPE)
+        set(${OUTPUT} "${path}" PARENT_SCOPE)
         return()
     else()
         # ssh form: git@host:user/repo

@@ -483,7 +483,7 @@ target_link_libraries(main PRIVATE foo::faa foo::bar)
 Dependency Soluation and Lock Files
 ------------------------------------
 
-Solveing the dependency graph will generate a `bpm-dependency-solution.cmake` that contains all dependencies and versions in the current build folder.
+Solving the dependency graph will generate a `bpm-dependency-solution.cmake` that contains all dependencies and versions in the current build folder.
 
 To prevent agains version changes or automatic updates due to SemVer constraints like `>=` you can save this file and use it as a lock file and pass it to your CMake configuration like so:
 
