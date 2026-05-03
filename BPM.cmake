@@ -1791,7 +1791,11 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
             set(dependencies_arg)
             set(bpm_cache_arg)
             if(EXISTS "${lib_src_dir}/.bpm-registry")
-                set(dependencies_arg "-DBPM_DEPENDENCY_SOLUTION=${CMAKE_BINARY_DIR}/bpm-dependency-solution.cmake")
+                if(BPM_DEPENDENCY_SOLUTION)
+                    set(dependencies_arg "-DBPM_DEPENDENCY_SOLUTION=${BPM_DEPENDENCY_SOLUTION}")
+                else()
+                    set(dependencies_arg "-DBPM_DEPENDENCY_SOLUTION=${CMAKE_BINARY_DIR}/bpm-dependency-solution.cmake")
+                endif()
                 set(bpm_cache_arg "-DBPM_CACHE=${BPM_CACHE_DIR}")
             endif()
             
