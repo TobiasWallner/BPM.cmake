@@ -2246,8 +2246,15 @@ function(BPMMakeAvailable)
         # create manifest
         # -------------------------------
 
-        file(SHA256 "${CMAKE_C_COMPILER}" C_COMPILER_HASH)
-        file(SHA256 "${CMAKE_CXX_COMPILER}" CXX_COMPILER_HASH)
+        set(C_COMPILER_HASH)
+        if(CMAKE_C_COMPILER)
+            file(SHA256 "${CMAKE_C_COMPILER}" C_COMPILER_HASH)
+        endif()
+
+        set(CXX_COMPILER_HASH)
+        if(CMAKE_CXX_COMPILER)
+            file(SHA256 "${CMAKE_CXX_COMPILER}" CXX_COMPILER_HASH)
+        endif()
 
         #get_property(PKG_OPTIONS GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS")
 
