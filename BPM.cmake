@@ -2049,15 +2049,15 @@ function(bpm_load_dependencies BPM_CACHE_DIR registry_content master_solution ou
         # load registry and add to the todo list, but only if not already part of the solution or the todo
         if(NOT DEFINED metadata_${SOL_NAME}_${SOL_VERSION})
             file(LOCK "${mirror_lock_file}")
-                execute_process(COMMAND git --git-dir "${mirror_dir}" cat-file blob "${top_version}:.bpm-registry" RESULT_VARIABLE res OUTPUT_VARIABLE metadata_tmp ERROR_QUIET)
+                execute_process(COMMAND git --git-dir "${mirror_dir}" cat-file blob "${SOL_VERSION}:.bpm-registry" RESULT_VARIABLE res OUTPUT_VARIABLE metadata_tmp ERROR_QUIET)
             file(LOCK "${mirror_lock_file}" RELEASE)
 
             string(REPLACE "\r\n" "\n" metadata_tmp "${metadata_tmp}") # replace new lines windows to unix style
-            string(REPLACE "\n" ";" metadata_${PKG_NAME}_${top_version} "${metadata_tmp}") # replace new lines with ; for list seperators
+            string(REPLACE "\n" ";" metadata_${PKG_NAME}_${SOL_VERSION} "${metadata_tmp}") # replace new lines with ; for list seperators
         endif()
 
         # load the metadata for the package and add entries to the todo list
-        foreach(line IN LISTS metadata_${PKG_NAME}_${top_version})
+        foreach(line IN LISTS metadata_${PKG_NAME}_${SOL_VERSION})
             if(line)
                 string(STRIP "${line}" line)
 
