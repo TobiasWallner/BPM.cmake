@@ -2089,6 +2089,11 @@ endfunction()
 
 #
 function(BPMMakeAvailable)
+
+    if(NOT PROJECT_IS_TOP_LEVEL)
+        return()
+    endif()
+
     message("")
 
     set(options VERBOSE NO_DOWNLOAD NO_DOWNLOAD_UPDATES)
