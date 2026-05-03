@@ -170,10 +170,6 @@ Versions can optionally have constraint qualifiers:
 - `=`: Exactly this version (default if none is provided)
 - `<`: Only versions less than (has to be paired with one of other ones)
 
-Git-Tags and Commit-Hashes can optionally have a constraint qualifiers:
-- `>=`: This version or a greater major, minor or patch number
-- `=`: Exactly this version (default if none is provided)
-
 Examples:
 - `BPMAddInstallPackage("https://github.com/fmtlib/fmt#>=10.0.0")`
 - `BPMAddInstallPackage("https://github.com/fmtlib/fmt#>=10.0.0<11.1.0")`
