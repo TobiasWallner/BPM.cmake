@@ -11,24 +11,20 @@ Experimental
 What is BPM
 ------------
 
-BPM.cmake makes it easy to include libraries in C/C++ projects.
+BPM (Binary Package Manager) is a CMake-native package manager that turns ordinary CMake projects into reproducible, version-solved dependencies without requiring package recipes.
 
-It is a **CMake-native package manager and dependency solver** for CMake-based Git repositories.
-- resolves version and constraints across your dependency graph (yes, even diamond dependencies)
-- resolves package options across your dependency graph
-- caches repositories, sources, builds and installations reproducibly
-- separates builds and installations by versions, toolchains, environments and other build options
-- integrates dependencies either as installed packages or source-only libraries.
 
 Table of Contents 
 ------------------
 - [Status](#status)
 - [What is BPM](#what-is-bpm)
 - [Quickstart](#quickstart)
+- [Advantages](#advantages)
 - [Adding Dependencies](#adding-dependencies)
 - [Make Dependencies Available](#make-dependencies-available)
 - [Caching](#caching)
 - [Create Installable CMake Packages](#create-installable-cmake-packages)
+- [Dependency Soluation and Lock Files](#dependency-soluation-and-lock-files)
 - [Additional Options](#additional-options)
 - [Error Messages](#error-messages)
 
@@ -96,6 +92,23 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 )
 ```
 
+Advantages
+----------
+- **Plug and play**: No installation or configuration files are required. Just download `BPM.cmake` into your project and add the dependencies to your `CMakeLists.txt`.
+- **Small and large projects**: BPM takes care of project dependency graphs, constraints, and library options, allowing developers to create projects of any size.
+- **No packaging required**: Any Git repository with a `CMakeLists.txt` can be added either as a source library via `add_subdirectory()` / `BPMAddSourcePackage()` or as an installed library via `find_package()` / `BPMAddInstallPackage()`.
+- **Simple source distribution**: BPM makes it easy to include projects as source libraries or installed libraries, reducing the need for header-only libraries, Git submodules, or locally installed libraries.
+- **Cross-platform support**: BPM passes compiler flags and toolchain files to all added source libraries and installed libraries.
+- **Independent of subproject-compatible `CMakeLists.txt` files**: Many projects have a `CMakeLists.txt` that work well for installation and `find_package()`, but not when added as a subproject with `add_subdirectory()`. For example, many libraries add commonly used targets, such as an `uninstall` target, which can cause name conflicts when included as a subproject. BPM supports both approaches: adding projects as subprojects via `add_subdirectory()` / `BPMAddSourcePackage()`, or installing them and using `find_package()` / `BPMAddInstallPackage()`.
+- **Recursive dependencies**: BPM ensures that no dependency is added more than once.
+- **Version constraints**: BPM supports SemVer version constraints and generates a dependency version graph.
+- **Version dependency graph solving**: BPM solves version dependency graphs and tries to find the highest compatible version of each dependency that satisfies the full constraint graph.
+- **Diamond dependencies**: BPM resolves diamond dependencies as part of the version constraint graph solution.
+- **Multiple versions**: BPM can manage multiple versions of the same dependency for different projects.
+- **Dependency solution / lock file**: BPM generates a dependency solution file after solving the dependency graph. This file records the resolved dependency versions, options, flags, and build configuration. It is passed to all dependencies so the entire project is built against the same solution. For reproducible builds, the same file can be reused by passing it back to the main project with `-DBPM_DEPENDENCY_SOLUTION=build/bpm-dependency-solution.cmake`.
+- **Reproducible builds**: BPM creates separate builds and installations to link against based on the system, CPU, flags, toolchains, compilers, versions, and more. All builds are separated by a unique manifest.
+- **Caching**: BPM supports caching source files, prebuilt binaries, and installations, separated by manifest hashes. To reuse prebuilt binaries and installations across projects, it is recommended to set `BPM_CACHE`.
+- **On-the-fly updates**: BPM checks for dependency updates on the fly, downloads, builds, and installs them, re-checks version constraints, and makes the newest compatible version available to your project depending on the SemVer version constraint. `>=` always checks for updates. `^` and `~` only update if necessary.
 
 Adding Dependencies
 -------------------
@@ -467,16 +480,27 @@ add_executable(main main.cpp)
 target_link_libraries(main PRIVATE foo::faa foo::bar)
 ```
 
+Dependency Soluation and Lock Files
+------------------------------------
+
+Solveing the dependency graph will generate a `bpm-dependency-solution.cmake` that contains all dependencies and versions in the current build folder.
+
+To prevent agains version changes or automatic updates due to SemVer constraints like `>=` you can save this file and use it as a lock file and pass it to your CMake configuration like so:
+
+```cmake
+cmake -S . -B build -DBPM_DEPENDENCY_SOLUTION=build/bpm-dependency-solution.cmake
+```
 
 Additional Options
 ------------------
 
 Additional options that can be set either as a CMake variable `set(...)` as a CMake argument `-D...` or as an environment variable.
 
+- `DBPM_DEPENDENCY_SOLUTION`
+  - If set: uses the versions and options from the dependency solution file instead of solving the dpendency graph and optionally fetching for updates.
 - `BPM_CLEAN_SOURCE_AFTER_INSTALL`
   - Default: `TRUE`
   - If set: will delete the checked out source directory after installing to free space from your filesystem. Does not delete the local mirror, only the files that got created when checking out a specific version/commit.
-
 - `BPM_CLEAN_BUILD_AFTER_INSTALL`
   - Default: `TRUE`
   - If set: will delete the build directory and its artifacts to free space from the filesystem.
