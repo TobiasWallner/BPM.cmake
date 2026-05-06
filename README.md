@@ -378,7 +378,7 @@ BPMCreateInstallPackage(
 
 - `NAMESPACE`: optional | exactly 1 argument  
   - namespace prefix for exported targets
-  - Default if omitted: `NAMESPACE=<PACKAGE_NAME>`
+  - Default if omitted: `NAMESPACE=<PROJECT_NAME>`
 
 - `PUBLIC_INCLUDE_DIRS`: optional | 0 or more
   - Public include directories that should be installed
