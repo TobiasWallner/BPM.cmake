@@ -639,8 +639,6 @@ function(bpm_add_package_to_registry PKG_NAME PKG_GIT_REPOSITORY PKG_GIT_TAG PKG
         # check if there is an ignore conflict
         get_property(REGISTERED_PRIVATE GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_PRIVATE")
 
-        message(STATUS "DEBUG: REGISTERED_PRIVATE: ${REGISTERED_PRIVATE}")
-        message(STATUS "DEBUG: PKG_PRIVATE: ${PKG_PRIVATE}")
         not_equal_bool("${REGISTERED_PRIVATE}" "${PKG_PRIVATE}" private_conflict)
         if(private_conflict)
             message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Package added, once with 'PRIVATE' and once without.")
@@ -708,7 +706,7 @@ function(bpm_tag_cache_covers_range_heuristic IN_VERSIONS RANGE OUT)
     if(LIST_SIZE EQUAL 1)
         # it is a named tag (not a version tag) or a commit hash
         list(GET RANGE 0 tag_or_hash)
-        message(FATAL_ERROR "Continue working here. Allowing git tags and hashes. tag or hash: '${tag_or_hash}'. versions: '${IN_VERSIONS}'")
+        message(FATAL_ERROR "Internal error. Range coverage for git tags and commit hashes currently unsupported. tag or hash: '${tag_or_hash}'. versions: '${IN_VERSIONS}'")
         return()
     endif()
 
@@ -1806,7 +1804,7 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
                 if(BPM_DEPENDENCY_SOLUTION)
                     set(dependencies_arg "-DBPM_DEPENDENCY_SOLUTION=${BPM_DEPENDENCY_SOLUTION}")
                 else()
-                    set(dependencies_arg "-DBPM_DEPENDENCY_SOLUTION=${CMAKE_BINARY_DIR}/bpm-dependency-solution.cmake")
+                    set(dependencies_arg "-DBPM_DEPENDENCY_SOLUTION=${CMAKE_BINARY_DIR}/bpm-dependency-solution.txt")
                 endif()
                 set(bpm_cache_arg "-DBPM_CACHE=${BPM_CACHE_DIR}")
             endif()
@@ -2184,7 +2182,8 @@ function(BPMMakeAvailable)
         bpm_solve_dependencies("${BPM_CACHE_DIR}" "${registry_content}" solution)
         
         # write/update solution on change
-        file(WRITE "${CMAKE_BINARY_DIR}/bpm-dependency-solution.cmake" "${solution}")
+        set(REPLACE ";" "\n" solution_file_content)
+        file(WRITE "${CMAKE_BINARY_DIR}/bpm-dependency-solution.txt" "${solution_file_content}")
 
         message("")
         message(STATUS "BPM [${PROJECT_NAME}]: Dependency Graph Solution ")
@@ -2225,6 +2224,8 @@ function(BPMMakeAvailable)
 
     else()
         file(READ "${BPM_DEPENDENCY_SOLUTION}" master_solution)
+        string(REPLACE "\r\n" "\n" master_solution)
+        string(REPLACE "\n" ";" master_solution)
         bpm_load_dependencies("${BPM_CACHE_DIR}" "${registry_content}" "${master_solution}" solution)
 
     endif()
@@ -2487,7 +2488,7 @@ function(BPMMakeAvailable)
             endforeach()
 
             # provide solution
-            set(BPM_DEPENDENCY_SOLUTION "${CMAKE_BINARY_DIR}/bpm-dependency-solution.cmake")
+            set(BPM_DEPENDENCY_SOLUTION "${CMAKE_BINARY_DIR}/bpm-dependency-solution.txt")
 
             # provide cache dir
             set(BPM_CACHE "${BPM_CACHE_DIR}")
