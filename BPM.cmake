@@ -736,17 +736,21 @@ function(bpm_fully_contains_tag_range IN_VERSIONS RANGE OUT)
 
     if(version_lower_plus_one VERSION_EQUAL version_upper)
         # find exact match
-        set(find_exact_match TRUE)
         foreach(tag IN LISTS IN_VERSIONS)
             string(REGEX MATCH "([0-9]+\\.[0-9]+\\.[0-9]+)" _ "${tag}")
             if(CMAKE_MATCH_1)
                 set(vtag ${CMAKE_MATCH_1})
-                if("${version_lower}" VERSION_LESS_EQUAL "${vtag}")
+                if("${version_lower}" VERSION_EQUAL "${vtag}")
+                    # found exact match
                     set(${OUT} TRUE PARENT_SCOPE)
                     return()
                 endif()
             endif()
         endforeach()
+
+        # did not find exact match
+        set(${OUT} FALSE PARENT_SCOPE)
+        return()
     else()
         # find range
         set(has_larger FALSE)
