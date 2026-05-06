@@ -701,7 +701,7 @@ function(bpm_get_cache_dir RESULT_VAR)
     set(${RESULT_VAR} "${_value}" PARENT_SCOPE)
 endfunction()
 
-function(bpm_fully_contains_tag_range IN_VERSIONS RANGE OUT)
+function(bpm_tag_cache_covers_range_heuristic IN_VERSIONS RANGE OUT)
     list(LENGTH RANGE LIST_SIZE)
 
     # check if it is a range or a singular version (like for named git tags or hashes)
@@ -1374,7 +1374,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                     endif()
                 else()
                     # is a regular version tag that spans a version range
-                    bpm_fully_contains_tag_range("${tags}" "${PKG_VERSION_RANGE}" contains)
+                    bpm_tag_cache_covers_range_heuristic("${tags}" "${PKG_VERSION_RANGE}" contains)
                 endif()
 
 
@@ -1570,6 +1570,14 @@ function(bpm_try_find_packages lib_name packages lib_install_dir OUT_FOUND_ALL)
         unset(${package}_DIR)
 
         if(${package}_FOUND)
+
+            # export variables to parent scope for later use (e.g. for generating manifest)
+            foreach(var IN ITEMS FOUND DIR VERSION CONFIG)
+                if(DEFINED ${package}_${var})
+                    set(${package}_${var} "${${package}_${var}}" PARENT_SCOPE)
+                endif()
+            endforeach()
+
             if(NOT found_packages)
                 string(APPEND found_packages "${package}")
             else()
@@ -2328,6 +2336,33 @@ function(BPMMakeAvailable)
         set(manifest_dir "${BPM_CACHE_DIR}/${PKG_NAME}/manifest")
         set(manifest_file_path "${BPM_CACHE_DIR}/${PKG_NAME}/manifest/${SHORT_MANIFEST_HASH}.manifest")
 
+        set(${PKG_NAME}_FOUND TRUE PARENT_SCOPE)
+        set(${PKG_NAME}_SRC_DIR "${lib_src_dir}" PARENT_SCOPE)
+        set(${PKG_NAME}_BUILD_DIR "${lib_build_dir}" PARENT_SCOPE)
+        set(${PKG_NAME}_INSTALL_DIR "${lib_install_dir}" PARENT_SCOPE)
+        set(${PKG_NAME}_DIR "${lib_install_dir}" PARENT_SCOPE)
+        
+        set(lib_src_dir "${BPM_CACHE_DIR}/${PKG_NAME}/src/${PKG_GIT_COMMIT_HASH}")
+        set(lib_src_lock_file "${BPM_CACHE_DIR}/${PKG_NAME}/src/${PKG_GIT_COMMIT_HASH}.lock")
+
+        set(lib_build_dir "${BPM_CACHE_DIR}/${PKG_NAME}/build/${SHORT_MANIFEST_HASH}")
+        set(lib_build_lock_file "${BPM_CACHE_DIR}/${PKG_NAME}/build/${SHORT_MANIFEST_HASH}.lock")
+
+        set(lib_install_dir "${BPM_CACHE_DIR}/${PKG_NAME}/install/${SHORT_MANIFEST_HASH}")
+        set(lib_install_lock_file "${BPM_CACHE_DIR}/${PKG_NAME}/install/${SHORT_MANIFEST_HASH}.lock")
+
+        set(manifest_dir "${BPM_CACHE_DIR}/${PKG_NAME}/manifest")
+        set(manifest_file_path "${BPM_CACHE_DIR}/${PKG_NAME}/manifest/${SHORT_MANIFEST_HASH}.manifest")
+
+        set(BPM_${PKG_NAME}_FOUND TRUE PARENT_SCOPE)
+        set(BPM_${PKG_NAME}_SRC_DIR "${lib_src_dir}" PARENT_SCOPE)
+        set(BPM_${PKG_NAME}_BUILD_DIR "${lib_build_dir}" PARENT_SCOPE)
+        set(BPM_${PKG_NAME}_INSTALL_DIR "${lib_install_dir}" PARENT_SCOPE)
+        set(BPM_${PKG_NAME}_MANIFEST_FILE "${manifest_file_path}" PARENT_SCOPE)
+        list(PREPEND CMAKE_PREFIX_PATH "${lib_install_dir}")
+        list(REMOVE_DUPLICATES CMAKE_PREFIX_PATH)
+        set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}" PARENT_SCOPE)
+
         # write manifest
         if(NOT EXISTS ${manifest_dir})
             file(MAKE_DIRECTORY "${manifest_dir}")
@@ -2351,7 +2386,16 @@ function(BPMMakeAvailable)
             endif()
 
             bpm_try_find_packages("${PKG_NAME}" "${PKG_PACKAGES}" "${lib_install_dir}" all_packages_found)
-            if(NOT all_packages_found)
+            if(all_packages_found)
+                foreach(package IN LISTS PKG_PACKAGES)
+                    # export variables to parent scope for later use (e.g. for generating manifest)
+                    foreach(var IN ITEMS FOUND DIR VERSION CONFIG)
+                        if(DEFINED ${package}_${var})
+                            set(${package}_${var} "${${package}_${var}}" PARENT_SCOPE)
+                        endif()
+                    endforeach()
+                endforeach()
+            else()
                 
                 set(packages_string)
                 foreach(p IN LISTS PKG_PACKAGES)
@@ -2380,6 +2424,17 @@ function(BPMMakeAvailable)
 
                 # try to make the packagse available
                 bpm_try_find_packages("${PKG_NAME}" "${PKG_PACKAGES}" "${lib_install_dir}" all_packages_found)
+
+                # export variables to parent scope for later use (e.g. for generating manifest)
+                if(all_packages_found)
+                    foreach(package IN LISTS PKG_PACKAGES)
+                        foreach(var IN ITEMS FOUND DIR VERSION CONFIG)
+                            if(DEFINED ${package}_${var})
+                                set(${package}_${var} "${${package}_${var}}" PARENT_SCOPE)
+                            endif()
+                        endforeach()
+                    endforeach()
+                endif()
 
                 # delete source and build directory
                 bpm_load_env_var(BPM_CLEAN_SOURCE_AFTER_INSTALL TRUE)
@@ -2557,3 +2612,4 @@ function(BPMCreateInstallPackage)
 
     
 endfunction()
+

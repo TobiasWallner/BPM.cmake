@@ -239,6 +239,23 @@ It contains all the packages/libraries that this library needs (aka. that have b
 Add that file to your git repository.
 This file will only change if you change the added packages. 
 
+### Outputs
+
+`BPMMakeAvailable()` creates the following outputs for each library:
+- `BPM_${LIBRARY_NAME}_FOUND`: True is BPM added the library
+- `BPM_${LIBRARY_NAME}_SRC_DIR`: Contais the path to the source directory (may be deleted/cleaned when installed - see: `BPM_CLEAN_SOURCE_AFTER_INSTALL`) 
+- `BPM_${LIBRARY_NAME}_BUILD_DIR`: Contais the path to the build directory (may be deleted/cleaned when installed - see: `BPM_CLEAN_BUILD_AFTER_INSTALL`)
+- `BPM_${LIBRARY_NAME}_INSTALL_DIR`: Contais the path to the installation directory
+- `BPM_${LIBRARY_NAME}_MANIFEST_FILE`: Contais the path to the manifest file
+
+- `CMAKE_PREFIX_PATH` All libraries install directories will be prepended to the prefix path.
+
+Further, `BPMMakeAvailable()` will propagate the following variables provided by `find_package()`:
+- `${PACKAGE_NAME}_FOUND`
+- `${PACKAGE_NAME}_DIR`
+- `${PACKAGE_NAME}_VERSION`
+- `${PACKAGE_NAME}_CONFIG` 
+
 Caching
 -------
 
