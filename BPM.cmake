@@ -2182,7 +2182,7 @@ function(BPMMakeAvailable)
         bpm_solve_dependencies("${BPM_CACHE_DIR}" "${registry_content}" solution)
         
         # write/update solution on change
-        set(REPLACE ";" "\n" solution_file_content)
+        string(REPLACE ";" "\n" solution_file_content "${solution}")
         file(WRITE "${CMAKE_BINARY_DIR}/bpm-dependency-solution.txt" "${solution_file_content}")
 
         message("")
@@ -2224,8 +2224,8 @@ function(BPMMakeAvailable)
 
     else()
         file(READ "${BPM_DEPENDENCY_SOLUTION}" master_solution)
-        string(REPLACE "\r\n" "\n" master_solution)
-        string(REPLACE "\n" ";" master_solution)
+        string(REPLACE "\r\n" "\n" master_solution "${master_solution}")
+        string(REPLACE "\n" ";" master_solution "${master_solution}")
         bpm_load_dependencies("${BPM_CACHE_DIR}" "${registry_content}" "${master_solution}" solution)
 
     endif()
