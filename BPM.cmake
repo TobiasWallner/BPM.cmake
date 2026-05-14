@@ -1552,11 +1552,56 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
         
     endwhile()
 
+    # for each list complete the dependencies recursively
+    set(recursive_solutions)
     foreach(sol IN LISTS decision_${decision_counter}_selected_list)
-        message(STATUS "DEBUG: ${sol}")
-    endforeach()
+        set(options)
+        set(oneValueArgs NAME VERSION GIT_TAG GIT_REPO TYPE REQUIRED_FROM)
+        set(multiValueArgs OPTIONS PACKAGES DEPENDENCIES)
+        separate_arguments(sol_tokens UNIX_COMMAND "${sol}")
+        cmake_parse_arguments(SOL "${options}" "${oneValueArgs}" "${multiValueArgs}" ${sol_tokens})
 
-    set("${out_selected_list}" "${decision_${decision_counter}_selected_list}" PARENT_SCOPE)
+        # find all dependencies recursively for this solution
+        set(deps_to_do "${SOL_DEPENDENCIES}")
+        set(deps_done)
+        while(deps_to_do)
+            list(POP_FRONT deps_to_do dep)
+
+            # add dependency to done list
+            if(NOT dep IN_LIST deps_done)
+                list(APPEND deps_done "${dep}")
+
+                # add recursice dependencies to the to do list
+                set(found_dep FALSE)
+                foreach(itr IN LISTS decision_${decision_counter}_selected_list)
+
+                    # find solution for this dependency
+                    set(options)
+                    set(oneValueArgs NAME VERSION GIT_TAG GIT_REPO TYPE REQUIRED_FROM)
+                    set(multiValueArgs OPTIONS PACKAGES DEPENDENCIES)
+                    separate_arguments(itr_tokens UNIX_COMMAND "${itr}")
+                    cmake_parse_arguments(ITR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${itr_tokens})
+
+                    if("${ITR_NAME}" STREQUAL "${dep}")
+                        set(found_dep TRUE)
+                        # add dependencies of this solution to the to do list
+                        foreach(dep_itr IN LISTS ITR_DEPENDENCIES)
+                            if((NOT dep_itr IN_LIST deps_done) AND (NOT dep_itr IN_LIST deps_to_do))
+                                list(APPEND deps_to_do "${dep_itr}")
+                            endif()
+                        endforeach()
+                        break() # to avoid unnecessary iterations after solution is found
+                    endif()
+                endforeach()
+                if(NOT found_dep)
+                    message(FATAL_ERROR "BPM [${PROJECT_NAME}]: Internal error: dependency '${dep}' of package '${SOL_NAME}' is being referenced but not found in the selected solution list. This should not happen - please report this to the developers.")
+                endif()
+            endif()
+        endwhile()
+        string(REPLACE ";" " " deps_done_str "${deps_done}")
+        list(APPEND recursive_solutions "NAME ${SOL_NAME} VERSION ${SOL_VERSION} GIT_TAG ${SOL_GIT_TAG} GIT_REPO ${SOL_GIT_REPO} TYPE ${SOL_TYPE} REQUIRED_FROM ${SOL_REQUIRED_FROM} OPTIONS ${SOL_OPTIONS} PACKAGES ${SOL_PACKAGES} DEPENDENCIES ${deps_done_str}")
+    endforeach()
+    set("${out_selected_list}" "${recursive_solutions}" PARENT_SCOPE)
 
 endfunction()
 
@@ -2212,7 +2257,7 @@ function(BPMMakeAvailable)
         message("")
         message(STATUS "BPM [${PROJECT_NAME}]: Solving dependency graph")
         bpm_solve_dependencies("${BPM_CACHE_DIR}" "${registry_content}" solution)
-        
+
         # write/update solution on change
         string(REPLACE ";" "\n" solution_file_content "${solution}")
         file(WRITE "${CMAKE_BINARY_DIR}/bpm-dependency-solution.txt" "${solution_file_content}")
@@ -2294,8 +2339,6 @@ function(BPMMakeAvailable)
         set(lib_mirror_dir "${BPM_CACHE_DIR}/${PKG_NAME}/mirror")
         set(lib_mirror_lock_file "${BPM_CACHE_DIR}/${PKG_NAME}/mirror.lock")
 
-        # repository already cloned with `bpm_solve_dependencies`
-
         # -------------------------------
         # create manifest
         # -------------------------------
@@ -2319,6 +2362,45 @@ function(BPMMakeAvailable)
         if(NOT res EQUAL 0)
             message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Could not convert '${PKG_VERSION}' to commit-hash in mirror '${lib_mirror_dir}'")
         endif()
+
+        # get a list of all dependency (deep information) solutions for the manifest
+        set(PKG_DEEP_DEPENDENCIES)
+
+        # sort dependencies for improved robustness of the manifest
+        list(SORT PKG_DEPENDENCIES) 
+        foreach(PKG_DEP IN LISTS PKG_DEPENDENCIES)
+            foreach(itr IN LISTS solution)
+                # clear name to prevent accidental reuse if parsing fails
+                set(ITR_NAME)
+                set(ITR_VERSION)
+                set(ITR_GIT_REPO)
+                set(ITR_TYPE)
+                set(ITR_OPTIONS)
+                set(ITR_PACKAGES)
+                set(ITR_DEPENDENCIES)
+
+                # parse solution entry
+                set(options)
+                set(oneValueArgs NAME VERSION GIT_REPO TYPE)
+                set(multiValueArgs OPTIONS PACKAGES DEPENDENCIES)
+                separate_arguments(itr_tokens UNIX_COMMAND "${itr}")
+                cmake_parse_arguments(ITR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${itr_tokens})
+
+                # find the direct dependencies of the package in the solution
+                if("${ITR_NAME}" STREQUAL "${PKG_DEP}")
+                    # sort multivalue lists for improved robustness of the manifest
+                    list(SORT ITR_OPTIONS)
+                    string(REPLACE ";" " " ITR_OPTIONS_STR "${ITR_OPTIONS}")
+
+                    list(SORT ITR_PACKAGES)
+                    string(REPLACE ";" " " ITR_PACKAGES_STR "${ITR_PACKAGES}")
+
+                    # append the dependency information to the deep dependency list for the manifest
+                    list(APPEND PKG_DEEP_DEPENDENCIES "NAME ${ITR_NAME} VERSION ${ITR_VERSION} GIT_REPO ${ITR_GIT_REPO} OPTIONS ${ITR_OPTIONS_STR} PACKAGE ${ITR_PACKAGES_STR}")
+                    break()
+                endif()
+            endforeach()
+        endforeach()
 
         # sort options list before creating the manifest
         list(SORT PKG_OPTIONS)
@@ -2347,6 +2429,7 @@ function(BPMMakeAvailable)
             PKG_GIT_COMMIT
             PKG_GIT_REPO
             PKG_OPTIONS
+            PKG_DEEP_DEPENDENCIES
         ) 
 
         string(SHA256 manifest_hash "${manifest}")
