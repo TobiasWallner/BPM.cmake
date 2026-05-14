@@ -273,7 +273,7 @@ function(bpm_parse_arguments INPUT out_name out_repo out_tag out_options out_pac
     # Parse arguments in long form
     set(options PRIVATE)
     set(oneValueArgs NAME GIT_REPOSITORY GIT_TAG)
-    set(multiValueArgs PACKAGES OPTIONS)
+    set(multiValueArgs PACKAGES OPTION DEPENDENCIES)
     cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${INPUT})
 
     foreach(opt IN LISTS PKG_OPTIONS)
@@ -1025,7 +1025,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
 
         set(options)
         set(oneValueArgs NAME VERSION_RANGE GIT_TAG GIT_REPOSITORY TYPE REQUIRED_FROM)
-        set(multiValueArgs OPTIONS PACKAGES)
+        set(multiValueArgs OPTIONS PACKAGES DEPENDENCIES)
         separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
         cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
         string(REPLACE "-" ";" PKG_VERSION_RANGE ${PKG_VERSION_RANGE})
@@ -1131,10 +1131,11 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
             set(SEL_OPTIONS)
             set(SEL_PACKAGES)
             set(SEL_REQUIRED_FROM)
+            set(SEL_DEPENDENCIES)
 
             set(options)
             set(oneValueArgs NAME VERSION GIT_TAG GIT_REPO TYPE )
-            set(multiValueArgs OPTIONS REQUIRED_FROM PACKAGES)
+            set(multiValueArgs OPTIONS REQUIRED_FROM PACKAGES DEPENDENCIES)
             separate_arguments(selected_tokens UNIX_COMMAND "${selected}")
             cmake_parse_arguments(SEL "${options}" "${oneValueArgs}" "${multiValueArgs}" ${selected_tokens})
 
@@ -1201,7 +1202,13 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                             string(REPLACE ";" " " combined_packages_ "${combined_packages}")
                             set(pkg_packages_entry "PACKAGES ${combined_packages_}")
                         endif()
-                        set(entry "NAME ${PKG_NAME} VERSION ${SEL_VERSION} GIT_TAG ${PKG_GIT_TAG} GIT_REPO ${PKG_GIT_REPOSITORY} TYPE ${PKG_TYPE} REQUIRED_FROM ${updated_required_from} ${pkg_options_entry} ${pkg_packages_entry}")
+
+                        set(pkg_dependency_entry)
+                        if(SEL_DEPENDENCIES)
+                            string(REPLACE ";" " " sel_dependencies_ "${SEL_DEPENDENCIES}")
+                            set(pkg_dependency_entry "DEPENDENCIES ${sel_dependencies_}")
+                        endif()
+                        set(entry "NAME ${PKG_NAME} VERSION ${SEL_VERSION} GIT_TAG ${PKG_GIT_TAG} GIT_REPO ${PKG_GIT_REPOSITORY} TYPE ${PKG_TYPE} REQUIRED_FROM ${updated_required_from} ${pkg_options_entry} ${pkg_packages_entry} ${pkg_dependency_entry}")
                         list(APPEND updated_selected_list "${entry}")
                         set(decision_${next_decision_counter}_selected_list "${updated_selected_list}")
                     
@@ -1449,6 +1456,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
         list(POP_BACK tag_wheel top_version)
 
         # load and cache metadata
+
         if(NOT DEFINED metadata_${PKG_NAME}_${top_version})
             file(LOCK "${mirror_lock_file}")
                 execute_process(COMMAND git --git-dir "${mirror_dir}" cat-file blob "${top_version}:.bpm-registry" RESULT_VARIABLE res OUTPUT_VARIABLE metadata_tmp ERROR_QUIET)
@@ -1458,7 +1466,6 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
             string(REPLACE "\n" ";" metadata_${PKG_NAME}_${top_version} "${metadata_tmp}") # replace new lines with ; for list seperators
         endif()
 
-                 
         foreach(line IN LISTS metadata_${PKG_NAME}_${top_version})
             if(line)
                 string(STRIP "${line}" line)
@@ -1467,7 +1474,6 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                 endif()
             endif()
         endforeach()
-        
 
         # no registry found --> no more entries added to the todo list --> make decision and continue
         math(EXPR next_decision_counter "${decision_counter} + 1")
@@ -1485,7 +1491,29 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
             string(REPLACE ";" " " PKG_PACKAGES_ "${PKG_PACKAGES}")
             set(pkg_packages_entry "PACKAGES ${PKG_PACKAGES_}")
         endif()
-        set(entry "NAME ${PKG_NAME} VERSION ${top_version} GIT_TAG ${PKG_GIT_TAG} GIT_REPO ${PKG_GIT_REPOSITORY} TYPE ${PKG_TYPE} REQUIRED_FROM ${PKG_REQUIRED_FROM} ${pkg_options_entry} ${pkg_packages_entry}")
+
+        set(pkg_dependencies_entry)
+        if(metadata_${PKG_NAME}_${top_version})
+            set(pkg_dependencies_entry "DEPENDENCIES")
+            foreach(line IN LISTS metadata_${PKG_NAME}_${top_version})
+                if(line)
+                    string(STRIP "${line}" line)
+                    if(NOT line STREQUAL "")
+                        # turn list to multi arg list
+                        string(REPLACE ";" " " line_ "${line}")
+
+                        # read name of dependency
+                        set(options "")
+                        set(oneValueArgs NAME)
+                        set(multiValueArgs "")
+                        separate_arguments(line_tokens UNIX_COMMAND "${line_}")
+                        cmake_parse_arguments(LINE "${options}" "${oneValueArgs}" "${multiValueArgs}" ${line_tokens})
+                        string(APPEND pkg_dependencies_entry " ${LINE_NAME}")
+                    endif()
+                endif()
+            endforeach()
+        endif()
+        set(entry "NAME ${PKG_NAME} VERSION ${top_version} GIT_TAG ${PKG_GIT_TAG} GIT_REPO ${PKG_GIT_REPOSITORY} TYPE ${PKG_TYPE} REQUIRED_FROM ${PKG_REQUIRED_FROM} ${pkg_options_entry} ${pkg_packages_entry} ${pkg_dependencies_entry}")
 
         set(decision_${next_decision_counter}_todo_list "${todo_list}")
         set(decision_${next_decision_counter}_selected_list "${decision_${decision_counter}_selected_list}")
@@ -1523,6 +1551,10 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
         string(APPEND logging "\n${msg}")
         
     endwhile()
+
+    foreach(sol IN LISTS decision_${decision_counter}_selected_list)
+        message(STATUS "DEBUG: ${sol}")
+    endforeach()
 
     set("${out_selected_list}" "${decision_${decision_counter}_selected_list}" PARENT_SCOPE)
 
@@ -2199,7 +2231,7 @@ function(BPMMakeAvailable)
             # parse solution entry
             set(options)
             set(oneValueArgs NAME VERSION GIT_REPO)
-            set(multiValueArgs OPTIONS PACKAGES)
+            set(multiValueArgs OPTIONS PACKAGES DEPENDENCIES)
             separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
             cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
 
@@ -2248,7 +2280,7 @@ function(BPMMakeAvailable)
         # parse solution entry
         set(options)
         set(oneValueArgs NAME VERSION GIT_REPO TYPE)
-        set(multiValueArgs OPTIONS PACKAGES)
+        set(multiValueArgs OPTIONS PACKAGES DEPENDENCIES)
         separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
         cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
 
@@ -2340,7 +2372,7 @@ function(BPMMakeAvailable)
         set(BPM_${PKG_NAME}_FOUND TRUE PARENT_SCOPE)
         set(BPM_${PKG_NAME}_SRC_DIR "${lib_src_dir}" PARENT_SCOPE)
         set(BPM_${PKG_NAME}_BUILD_DIR "${lib_build_dir}" PARENT_SCOPE)
-        set(BPM_${PKG_NAME}_INSTALL_DIR "${lib_install_dir}" PARENT_SCOPE)
+        set(BPM_${PKG_NAME}_INSTALL_DIR "${lib_install_dir}" PARENT_SCOPE)   
         
         set(lib_src_dir "${BPM_CACHE_DIR}/${PKG_NAME}/src/${PKG_GIT_COMMIT_HASH}")
         set(lib_src_lock_file "${BPM_CACHE_DIR}/${PKG_NAME}/src/${PKG_GIT_COMMIT_HASH}.lock")
