@@ -2317,15 +2317,19 @@ function(BPMMakeAvailable)
 
         # get a list of all dependency (deep information) solutions for the manifest
         set(DEPENDENCIES_MANIFESTS)
+        list(SORT PKG_DEPENDENCIES)
         foreach(dep IN LISTS PKG_DEPENDENCIES)
             if(BPM_${dep}_FOUND)
-                string(APPEND DEPENDENCIES_MANIFESTS "\n  DEPENDENCY ${dep} MANIFEST ${BPM_${dep}_MANIFEST_SHORT_HASH}")
+                string(APPEND DEPENDENCIES_MANIFESTS "\n  DEPENDENCY ${dep} MANIFEST ${BPM_${dep}_MANIFEST_HASH}")
+            else()
+                message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Dependency '${dep}' referenced but no manifest has been created yet. This should not happen. Please report this to the developers.")
             endif()
         endforeach()
 
         # sort options list before creating the manifest
         list(SORT PKG_OPTIONS)
-
+        list(SORT PKG_PACKAGES)
+        
         # turn tag into commit hash
         bpm_create_manifest(manifest
             CMAKE_C_COMPILER_ID
@@ -2337,6 +2341,9 @@ function(BPMMakeAvailable)
             CMAKE_SYSTEM_NAME
             CMAKE_SYSTEM_PROCESSOR
             CMAKE_VERSION
+            CMAKE_GENERATOR
+            CMAKE_GENERATOR_PLATFORM
+            CMAKE_GENERATOR_TOOLSET
             BUILD_SHARED_LIBS
             CMAKE_POSITION_INDEPENDENT_CODE
             CMAKE_INTERPROCEDURAL_OPTIMIZATION
@@ -2350,6 +2357,8 @@ function(BPMMakeAvailable)
             PKG_GIT_COMMIT
             PKG_GIT_REPO
             PKG_OPTIONS
+            PKG_PACKAGES
+            PKG_TYPE
             DEPENDENCIES_MANIFESTS
         ) 
 
@@ -2372,8 +2381,6 @@ function(BPMMakeAvailable)
 
         set(manifest_dir "${BPM_CACHE_DIR}/${PKG_NAME}/manifest")
         set(manifest_file_path "${BPM_CACHE_DIR}/${PKG_NAME}/manifest/${SHORT_MANIFEST_HASH}.manifest")   
-        
-        message(STATUS "DEBUG: BPM_\${PKG_NAME}_FOUND: ${BPM_${PKG_NAME}_FOUND}")
 
         set(lib_src_dir "${BPM_CACHE_DIR}/${PKG_NAME}/src/${PKG_GIT_COMMIT_HASH}")
         set(lib_src_lock_file "${BPM_CACHE_DIR}/${PKG_NAME}/src/${PKG_GIT_COMMIT_HASH}.lock")
