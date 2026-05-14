@@ -1553,55 +1553,7 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
     endwhile()
 
     # for each list complete the dependencies recursively
-    set(recursive_solutions)
-    foreach(sol IN LISTS decision_${decision_counter}_selected_list)
-        set(options)
-        set(oneValueArgs NAME VERSION GIT_TAG GIT_REPO TYPE REQUIRED_FROM)
-        set(multiValueArgs OPTIONS PACKAGES DEPENDENCIES)
-        separate_arguments(sol_tokens UNIX_COMMAND "${sol}")
-        cmake_parse_arguments(SOL "${options}" "${oneValueArgs}" "${multiValueArgs}" ${sol_tokens})
-
-        # find all dependencies recursively for this solution
-        set(deps_to_do "${SOL_DEPENDENCIES}")
-        set(deps_done)
-        while(deps_to_do)
-            list(POP_FRONT deps_to_do dep)
-
-            # add dependency to done list
-            if(NOT dep IN_LIST deps_done)
-                list(APPEND deps_done "${dep}")
-
-                # add recursice dependencies to the to do list
-                set(found_dep FALSE)
-                foreach(itr IN LISTS decision_${decision_counter}_selected_list)
-
-                    # find solution for this dependency
-                    set(options)
-                    set(oneValueArgs NAME VERSION GIT_TAG GIT_REPO TYPE REQUIRED_FROM)
-                    set(multiValueArgs OPTIONS PACKAGES DEPENDENCIES)
-                    separate_arguments(itr_tokens UNIX_COMMAND "${itr}")
-                    cmake_parse_arguments(ITR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${itr_tokens})
-
-                    if("${ITR_NAME}" STREQUAL "${dep}")
-                        set(found_dep TRUE)
-                        # add dependencies of this solution to the to do list
-                        foreach(dep_itr IN LISTS ITR_DEPENDENCIES)
-                            if((NOT dep_itr IN_LIST deps_done) AND (NOT dep_itr IN_LIST deps_to_do))
-                                list(APPEND deps_to_do "${dep_itr}")
-                            endif()
-                        endforeach()
-                        break() # to avoid unnecessary iterations after solution is found
-                    endif()
-                endforeach()
-                if(NOT found_dep)
-                    message(FATAL_ERROR "BPM [${PROJECT_NAME}]: Internal error: dependency '${dep}' of package '${SOL_NAME}' is being referenced but not found in the selected solution list. This should not happen - please report this to the developers.")
-                endif()
-            endif()
-        endwhile()
-        string(REPLACE ";" " " deps_done_str "${deps_done}")
-        list(APPEND recursive_solutions "NAME ${SOL_NAME} VERSION ${SOL_VERSION} GIT_TAG ${SOL_GIT_TAG} GIT_REPO ${SOL_GIT_REPO} TYPE ${SOL_TYPE} REQUIRED_FROM ${SOL_REQUIRED_FROM} OPTIONS ${SOL_OPTIONS} PACKAGES ${SOL_PACKAGES} DEPENDENCIES ${deps_done_str}")
-    endforeach()
-    set("${out_selected_list}" "${recursive_solutions}" PARENT_SCOPE)
+    set("${out_selected_list}" "${decision_${decision_counter}_selected_list}" PARENT_SCOPE)
 
 endfunction()
 
@@ -2312,7 +2264,7 @@ function(BPMMakeAvailable)
     # ------------------------------------------------------------------------------
     message("")
     message(STATUS "BPM [${PROJECT_NAME}]: Making packages available")
-    list(REVERSE solution) # reverse for correct order of installation (dependencies first)
+    list(REVERSE solution) # reverse for correct order of installation (dependencies first) - should have leaves first
     foreach(pkg IN LISTS solution)
         # clear variables to prevent accidental reuse in the loop
         set(PKG_NAME)
@@ -2364,42 +2316,11 @@ function(BPMMakeAvailable)
         endif()
 
         # get a list of all dependency (deep information) solutions for the manifest
-        set(PKG_DEEP_DEPENDENCIES)
-
-        # sort dependencies for improved robustness of the manifest
-        list(SORT PKG_DEPENDENCIES) 
-        foreach(PKG_DEP IN LISTS PKG_DEPENDENCIES)
-            foreach(itr IN LISTS solution)
-                # clear name to prevent accidental reuse if parsing fails
-                set(ITR_NAME)
-                set(ITR_VERSION)
-                set(ITR_GIT_REPO)
-                set(ITR_TYPE)
-                set(ITR_OPTIONS)
-                set(ITR_PACKAGES)
-                set(ITR_DEPENDENCIES)
-
-                # parse solution entry
-                set(options)
-                set(oneValueArgs NAME VERSION GIT_REPO TYPE)
-                set(multiValueArgs OPTIONS PACKAGES DEPENDENCIES)
-                separate_arguments(itr_tokens UNIX_COMMAND "${itr}")
-                cmake_parse_arguments(ITR "${options}" "${oneValueArgs}" "${multiValueArgs}" ${itr_tokens})
-
-                # find the direct dependencies of the package in the solution
-                if("${ITR_NAME}" STREQUAL "${PKG_DEP}")
-                    # sort multivalue lists for improved robustness of the manifest
-                    list(SORT ITR_OPTIONS)
-                    string(REPLACE ";" " " ITR_OPTIONS_STR "${ITR_OPTIONS}")
-
-                    list(SORT ITR_PACKAGES)
-                    string(REPLACE ";" " " ITR_PACKAGES_STR "${ITR_PACKAGES}")
-
-                    # append the dependency information to the deep dependency list for the manifest
-                    list(APPEND PKG_DEEP_DEPENDENCIES "NAME ${ITR_NAME} VERSION ${ITR_VERSION} GIT_REPO ${ITR_GIT_REPO} OPTIONS ${ITR_OPTIONS_STR} PACKAGE ${ITR_PACKAGES_STR}")
-                    break()
-                endif()
-            endforeach()
+        set(DEPENDENCIES_MANIFESTS)
+        foreach(dep IN LISTS PKG_DEPENDENCIES)
+            if(BPM_${dep}_FOUND)
+                string(APPEND DEPENDENCIES_MANIFESTS "\n  DEPENDENCY ${dep} MANIFEST ${BPM_${dep}_MANIFEST_SHORT_HASH}")
+            endif()
         endforeach()
 
         # sort options list before creating the manifest
@@ -2429,7 +2350,7 @@ function(BPMMakeAvailable)
             PKG_GIT_COMMIT
             PKG_GIT_REPO
             PKG_OPTIONS
-            PKG_DEEP_DEPENDENCIES
+            DEPENDENCIES_MANIFESTS
         ) 
 
         string(SHA256 manifest_hash "${manifest}")
@@ -2450,13 +2371,10 @@ function(BPMMakeAvailable)
         set(lib_install_lock_file "${BPM_CACHE_DIR}/${PKG_NAME}/install/${SHORT_MANIFEST_HASH}.lock")
 
         set(manifest_dir "${BPM_CACHE_DIR}/${PKG_NAME}/manifest")
-        set(manifest_file_path "${BPM_CACHE_DIR}/${PKG_NAME}/manifest/${SHORT_MANIFEST_HASH}.manifest")
-
-        set(BPM_${PKG_NAME}_FOUND TRUE PARENT_SCOPE)
-        set(BPM_${PKG_NAME}_SRC_DIR "${lib_src_dir}" PARENT_SCOPE)
-        set(BPM_${PKG_NAME}_BUILD_DIR "${lib_build_dir}" PARENT_SCOPE)
-        set(BPM_${PKG_NAME}_INSTALL_DIR "${lib_install_dir}" PARENT_SCOPE)   
+        set(manifest_file_path "${BPM_CACHE_DIR}/${PKG_NAME}/manifest/${SHORT_MANIFEST_HASH}.manifest")   
         
+        message(STATUS "DEBUG: BPM_\${PKG_NAME}_FOUND: ${BPM_${PKG_NAME}_FOUND}")
+
         set(lib_src_dir "${BPM_CACHE_DIR}/${PKG_NAME}/src/${PKG_GIT_COMMIT_HASH}")
         set(lib_src_lock_file "${BPM_CACHE_DIR}/${PKG_NAME}/src/${PKG_GIT_COMMIT_HASH}.lock")
 
@@ -2467,13 +2385,26 @@ function(BPMMakeAvailable)
         set(lib_install_lock_file "${BPM_CACHE_DIR}/${PKG_NAME}/install/${SHORT_MANIFEST_HASH}.lock")
 
         set(manifest_dir "${BPM_CACHE_DIR}/${PKG_NAME}/manifest")
+        set(manifest_file_name "${SHORT_MANIFEST_HASH}.manifest")
         set(manifest_file_path "${BPM_CACHE_DIR}/${PKG_NAME}/manifest/${SHORT_MANIFEST_HASH}.manifest")
 
         set(BPM_${PKG_NAME}_FOUND TRUE PARENT_SCOPE)
+        set(BPM_${PKG_NAME}_FOUND TRUE) # set in current scope too
         set(BPM_${PKG_NAME}_SRC_DIR "${lib_src_dir}" PARENT_SCOPE)
+        set(BPM_${PKG_NAME}_SRC_DIR "${lib_src_dir}")
         set(BPM_${PKG_NAME}_BUILD_DIR "${lib_build_dir}" PARENT_SCOPE)
+        set(BPM_${PKG_NAME}_BUILD_DIR "${lib_build_dir}")
         set(BPM_${PKG_NAME}_INSTALL_DIR "${lib_install_dir}" PARENT_SCOPE)
-        set(BPM_${PKG_NAME}_MANIFEST_FILE "${manifest_file_path}" PARENT_SCOPE)
+        set(BPM_${PKG_NAME}_INSTALL_DIR "${lib_install_dir}")
+        set(BPM_${PKG_NAME}_MANIFEST_HASH "${manifest_hash}" PARENT_SCOPE)
+        set(BPM_${PKG_NAME}_MANIFEST_HASH "${manifest_hash}")
+        set(BPM_${PKG_NAME}_MANIFEST_SHORT_HASH "${SHORT_MANIFEST_HASH}" PARENT_SCOPE)
+        set(BPM_${PKG_NAME}_MANIFEST_SHORT_HASH "${SHORT_MANIFEST_HASH}")
+        set(BPM_${PKG_NAME}_MANIFEST_FILE_NAME "${manifest_file_name}" PARENT_SCOPE)
+        set(BPM_${PKG_NAME}_MANIFEST_FILE_NAME "${manifest_file_name}")
+        set(BPM_${PKG_NAME}_MANIFEST_FILE_PATH "${manifest_file_path}" PARENT_SCOPE)
+        set(BPM_${PKG_NAME}_MANIFEST_FILE_PATH "${manifest_file_path}")
+
         list(PREPEND CMAKE_PREFIX_PATH "${lib_install_dir}")
         list(REMOVE_DUPLICATES CMAKE_PREFIX_PATH)
         set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}" PARENT_SCOPE)
