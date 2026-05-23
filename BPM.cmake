@@ -229,7 +229,7 @@ function(bpm_parse_short_dependency INPUT out_git_repo out_name out_tag)
     # Extract repository name (after last '/' or '\')
     # ------------------------------------------------------------
     #string(REGEX MATCH "([^/\\\\]+)\\.git$" _ "${FULL_PATH}")
-    string(REGEX MATCH "^.*[/\\\\]([^/\\\\]+)$" _ "${FULL_PATH}")
+    string(REGEX MATCH "^.*[/\\\\]([^/\\\\]+)[/\\\\]?$" _ "${FULL_PATH}")
     set(NAME "${CMAKE_MATCH_1}")
     if(BPM_VERBOSE)
         message(STATUS "${INPUT} --> Name: ${NAME}")
@@ -683,20 +683,23 @@ function(BPMAddSourcePackage)
 endfunction()
 
 function(bpm_get_cache_dir RESULT_VAR)
-    set(_value "")
+    set(cache_dir "")
 
     if(DEFINED BPM_CACHE AND NOT "${BPM_CACHE}" STREQUAL "")
-        set(_value "${BPM_CACHE}")
+        set(cache_dir "${BPM_CACHE}")
         message(STATUS "BPM [${PROJECT_NAME}]: resolve BPM_CACHE - from CMAKE_ARG: ${BPM_CACHE}")
     elseif(DEFINED ENV{BPM_CACHE} AND NOT "$ENV{BPM_CACHE}" STREQUAL "")
-        set(_value "$ENV{BPM_CACHE}")
-        message(STATUS "BPM [${PROJECT_NAME}]: resolve BPM_CACHE - from environment variable: ${_value}")
+        set(cache_dir "$ENV{BPM_CACHE}")
+        message(STATUS "BPM [${PROJECT_NAME}]: resolve BPM_CACHE - from environment variable: ${cache_dir}")
     else()
-        set(_value "${CMAKE_BINARY_DIR}/_deps")
-        message(STATUS "BPM [${PROJECT_NAME}]: resolve BPM_CACHE - no cache provided: use local: ${_value}")
+        set(cache_dir "${CMAKE_BINARY_DIR}/_deps")
+        message(STATUS "BPM [${PROJECT_NAME}]: resolve BPM_CACHE - no cache provided: use local: ${cache_dir}")
     endif()
 
-    set(${RESULT_VAR} "${_value}" PARENT_SCOPE)
+    # turn into absolute path
+    cmake_path(ABSOLUTE_PATH cache_dir BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE)
+
+    set(${RESULT_VAR} "${cache_dir}" PARENT_SCOPE)
 endfunction()
 
 function(bpm_tag_cache_covers_range_heuristic IN_VERSIONS RANGE OUT)
@@ -1347,17 +1350,19 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                 endif()
             endif()
 
+            
+
             # see if tags have already been acquired
             if(DEFINED BPM_REGISTRY_${PKG_NAME}_GIT_TAGS)
                 set(tags "${BPM_REGISTRY_${PKG_NAME}_GIT_TAGS}")
             else()
                 # if tags have not been acquired - load them
                 bpm_load_tag_list("${mirror_dir}" "${mirror_lock_file}" tags)
-                if(NOT tags)
-                    set(filename "${CMAKE_BINARY_DIR}/bpm-dependency-solver-log.txt")
-                    file(WRITE "${filename}" "${logging}")
-                    message(FATAL_ERROR "BPM [${PKG_NAME}]: Has no tags to checkout. Mirror: ${mirror_dir}. See '${filename}' for details.")
-                endif()
+                #if(NOT tags)
+                #    set(filename "${CMAKE_BINARY_DIR}/bpm-dependency-solver-log.txt")
+                #    file(WRITE "${filename}" "${logging}")
+                #    message(FATAL_ERROR "BPM [${PKG_NAME}]: Has no tags to checkout. Mirror: ${mirror_dir}. See '${filename}' for details.")
+                #endif()
                 # cache tags
                 set("BPM_REGISTRY_${PKG_NAME}_GIT_TAGS" "${tags}")
             endif()
@@ -1416,11 +1421,11 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
 
                         # re-update tags after fetching
                         bpm_load_tag_list("${mirror_dir}" "${mirror_lock_file}" tags)
-                        if(NOT tags)
-                            set(filename "${CMAKE_BINARY_DIR}/bpm-dependency-solver-log.txt")
-                            file(WRITE "${filename}" "${logging}")
-                            message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Has no tags to checkout. Mirror: ${mirror_dir}. See '${filename}' for details.")
-                        endif()
+                        #if(NOT tags)
+                        #    set(filename "${CMAKE_BINARY_DIR}/bpm-dependency-solver-log.txt")
+                        #    file(WRITE "${filename}" "${logging}")
+                        #    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Has no tags to checkout. Mirror: ${mirror_dir}. See '${filename}' for details.")
+                        #endif()
     
                         # cache tags
                         set("BPM_REGISTRY_${PKG_NAME}_GIT_TAGS" "${tags}")
@@ -1437,6 +1442,13 @@ function(bpm_solve_dependencies BPM_CACHE_DIR in_packages out_selected_list)
                 # is a single/exact tag or commit hash
                 set(tag_wheel ${PKG_VERSION_RANGE})
             else()
+                # check if tags have been loaded
+                if(NOT tags)
+                    set(filename "${CMAKE_BINARY_DIR}/bpm-dependency-solver-log.txt")
+                    file(WRITE "${filename}" "${logging}")
+                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Failed to load tags for package '${PKG_NAME}' from mirror: ${mirror_dir}. See '${filename}' for details.")
+                endif()
+
                 # is an actual range
                 bpm_filter_version_tags("${tags}" "${PKG_VERSION_RANGE}" tag_wheel)
                 if(NOT tag_wheel)
@@ -1795,7 +1807,7 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
         # check if option is already explicitly enabled
         set(found FALSE)
         foreach(opt IN LISTS options)
-            if(opt MATCHES "^[ \t]*${flag}[ \t]*=[ \t]*(ON|TRUE|1)$[ \t]*")
+            if("${opt}" MATCHES "^[ \t]*${flag}[ \t]*=[ \t]*(ON|TRUE|1)$[ \t]*")
                 set(found TRUE)
                 break()        
             endif()
@@ -1809,12 +1821,20 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
 
     set(toolchain_args)
     if(CMAKE_TOOLCHAIN_FILE)
-        set(toolchain_args "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}")
+        # turn toolchain file path into an absolute path
+        set(abs_toolchain_file "${CMAKE_TOOLCHAIN_FILE}")
+        cmake_path(ABSOLUTE_PATH abs_toolchain_file BASE_DIRECTORY "${CMAKE_SOURCE_DIR}" NORMALIZE)
+        set(toolchain_args "-DCMAKE_TOOLCHAIN_FILE=${abs_toolchain_file}")
     else()
         set(toolchain_args
             "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
             "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
         )
+    endif()
+
+    set(config_arg)
+    if((NOT CMAKE_CONFIGURATION_TYPES) AND (NOT CMAKE_TOOLCHAIN_FILE))
+        set(config_arg "-DCMAKE_BUILD_TYPE=Release")    
     endif()
 
     set(verbose_arg)
@@ -1852,11 +1872,6 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
             if(NOT BPM_VERBOSE)
                 set(quiet "OUTPUT_QUIET")
             endif()
-                
-            set(config_arg "-DCMAKE_BUILD_TYPE=Release")
-            if(CMAKE_CONFIGURATION_TYPES)
-                set(config_arg)
-            endif()
 
             # TODO: Optimisation: skip instead of re-configuring
             if(BPM_VERBOSE)
@@ -1871,8 +1886,6 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
                 
                 "-DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
                 "-DCMAKE_GENERATOR=${CMAKE_GENERATOR}"
-
-                ${config_arg}
 
                 ${bpm_cache_arg}
                 "-DCMAKE_INSTALL_PREFIX=${lib_install_dir}"
@@ -1918,12 +1931,12 @@ function(bpm_build_library lib_name library_build_dir lib_build_lock_file)
     endif()
 
     file(LOCK "${lib_build_lock_file}")
+        message(STATUS "================================ BUILDING ${lib_name} ================================")
         if(BPM_VERBOSE)
             message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: execute command: ${CMAKE_COMMAND} --build \"${library_build_dir}\" ${config_arg} --parallel ${parallel}")
-            execute_process(COMMAND ${CMAKE_COMMAND} --build "${library_build_dir}" ${config_arg} --parallel ${parallel} RESULT_VARIABLE res)
-        else()
-            execute_process(COMMAND ${CMAKE_COMMAND} --build "${library_build_dir}" ${config_arg} --parallel ${parallel} RESULT_VARIABLE res OUTPUT_QUIET)
         endif()
+        execute_process(COMMAND ${CMAKE_COMMAND} --build "${library_build_dir}" ${config_arg} --parallel ${parallel} RESULT_VARIABLE res)
+        message(STATUS "================================ BUILDING ${lib_name} - FINISHED ================================")
     file(LOCK "${lib_build_lock_file}" RELEASE)
 
     if(res EQUAL 0)
@@ -1973,18 +1986,22 @@ function(bpm_install_library lib_name lib_build_dir lib_install_dir lib_build_lo
 
 endfunction()
 
-function(bpm_installed_packages PGK_NAME lib_install_dir OUT_PACKAGES)
+function(bpm_find_installed_packages PGK_NAME lib_install_dir OUT_PACKAGES)
     if(NOT EXISTS ${lib_install_dir})
         message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Install dir '${lib_install_dir}' does not exist.")
         set(${OUT_PACKAGES} "" PARENT_SCOPE)
         return()
     endif()
+
     file(GLOB_RECURSE config_files "${lib_install_dir}/*Config.cmake" "${lib_install_dir}/*config.cmake")
+
     set(installed_packages)
     if(config_files)
         foreach(config_file IN LISTS config_files)
-            get_filename_component(config_dir "${config_file}" DIRECTORY)
-            get_filename_component(package_name "${config_dir}" NAME)
+            get_filename_component(config_filename "${config_file}" NAME)
+            set(package_name "${config_filename}")
+            string(REGEX REPLACE "Config\\.cmake$" "" package_name "${package_name}")
+            string(REGEX REPLACE "-config\\.cmake$" "" package_name "${package_name}")
             list(APPEND installed_packages "${package_name}")
         endforeach()
     endif()
@@ -2305,8 +2322,6 @@ function(BPMMakeAvailable)
             file(SHA256 "${CMAKE_CXX_COMPILER}" CXX_COMPILER_HASH)
         endif()
 
-        #get_property(PKG_OPTIONS GLOBAL PROPERTY "BPM_REGISTRY_${PKG_NAME}_OPTIONS")
-
         file(LOCK "${lib_mirror_lock_file}")
             execute_process(COMMAND git --git-dir "${lib_mirror_dir}" rev-parse "${PKG_VERSION}^{commit}" RESULT_VARIABLE res OUTPUT_VARIABLE PKG_GIT_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE)
         file(LOCK "${lib_mirror_lock_file}" RELEASE)
@@ -2330,6 +2345,7 @@ function(BPMMakeAvailable)
         list(SORT PKG_OPTIONS)
         list(SORT PKG_PACKAGES)
         
+        
         # turn tag into commit hash
         bpm_create_manifest(manifest
             CMAKE_C_COMPILER_ID
@@ -2347,7 +2363,7 @@ function(BPMMakeAvailable)
             BUILD_SHARED_LIBS
             CMAKE_POSITION_INDEPENDENT_CODE
             CMAKE_INTERPROCEDURAL_OPTIMIZATION
-            CMAKE_C_FLAGS  
+            CMAKE_C_FLAGS
             CMAKE_CXX_FLAGS
             CMAKE_EXE_LINKER_FLAGS
             CMAKE_SHARED_LINKER_FLAGS
@@ -2489,6 +2505,15 @@ function(BPMMakeAvailable)
                     endforeach()
                 endif()
 
+                if(NOT all_packages_found)
+                    bpm_find_installed_packages("${PKG_NAME}" "${lib_install_dir}" installed_packages)
+                    message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Available packages after installation:")
+                    foreach(p IN LISTS installed_packages)
+                        message(STATUS "  - ${p}")
+                    endforeach()
+                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Find packages '${PKG_PACKAGES}' - failed after (re-)install.")
+                endif()
+
                 # delete source and build directory
                 bpm_load_env_var(BPM_CLEAN_SOURCE_AFTER_INSTALL TRUE)
                 if(BPM_CLEAN_SOURCE_AFTER_INSTALL)
@@ -2515,12 +2540,7 @@ function(BPMMakeAvailable)
                         message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Cleaning build dir - done")
                     endif()
                 endif()
-
-                if(NOT all_packages_found)
-                    bpm_installed_packages("${PKG_NAME}" "${lib_install_dir}" installed_packages)
-                    string(REPLACE ";" ", " installed_packages_string "${installed_packages}")
-                    message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Find packages '${PKG_PACKAGES}' - failed after (re-)install. Available packages: ${installed_packages_string}. Tip: change your `BPMAddInstallPackages` calls if necessary.")
-                endif()
+                
             endif()
 
         elseif("${PKG_TYPE}" STREQUAL "ADD_SUBDIR")
