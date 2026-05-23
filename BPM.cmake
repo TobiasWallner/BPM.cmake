@@ -1649,19 +1649,9 @@ function(bpm_try_find_packages lib_name packages lib_install_dir OUT_FOUND_ALL)
 
     if(NOT all_packages_found)
         # check which packages are actually in the install dir to give a more detailed error message
-        file(GLOB_RECURSE config_files "${lib_install_dir}/*Config.cmake" "${lib_install_dir}/*config.cmake")
-        if(config_files)
-            set(installed_package_names)
-            foreach(config_file IN LISTS config_files)
-                get_filename_component(config_dir "${config_file}" DIRECTORY)
-                get_filename_component(package_name "${config_dir}" NAME)
-                if(NOT installed_package_names)
-                    string(APPEND installed_package_names "${package_name}")
-                else()
-                    string(APPEND installed_package_names ", ${package_name}")
-                endif()
-            endforeach()
-            message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: NOTE: Installed packages: ${installed_package_names}")
+        bpm_find_installed_packages("${PKG_NAME}" "${lib_install_dir}" installed_packages)
+        if(installed_packages)
+            message(STATUS "BPM [${PROJECT_NAME}:${PKG_NAME}]: Installed packages: ${installed_packages}")
         endif()
     endif()
 
@@ -1814,10 +1804,10 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
         endforeach()
 
         if(NOT found)
-            message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Found test/example option. Disabiling: '${flag}'")
             list(APPEND cmake_disable_test_example_flags "-D${flag}=OFF")
         endif()
     endforeach()
+    message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: Found test/example option. Disabiling: '${cmake_disable_test_example_flags}'")
 
     set(toolchain_args)
     if(CMAKE_TOOLCHAIN_FILE)
@@ -1988,7 +1978,6 @@ endfunction()
 
 function(bpm_find_installed_packages PGK_NAME lib_install_dir OUT_PACKAGES)
     if(NOT EXISTS ${lib_install_dir})
-        message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Install dir '${lib_install_dir}' does not exist.")
         set(${OUT_PACKAGES} "" PARENT_SCOPE)
         return()
     endif()
@@ -2143,8 +2132,38 @@ function(bpm_load_dependencies BPM_CACHE_DIR registry_content master_solution ou
     set(${out_solution} "${solution}" PARENT_SCOPE)
 endfunction()
 
+function(bpm_check_for_bpm_updates BPM_VERSION BPM_REPO)
+    message(STATUS "BPM [${PROJECT_NAME}]: Checking for BPM updates...")
+
+    execute_process(
+        COMMAND git ls-remote --tags --sort=-version:refname "${BPM_REPO}" "refs/tags/*"
+        RESULT_VARIABLE res
+        OUTPUT_VARIABLE bpm_version_tags
+        ERROR_VARIABLE err
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+
+    if(bpm_version_tags MATCHES "v([0-9]+\\.[0-9]+\\.[0-9]+)")
+    set(newest_bpm_version "${CMAKE_MATCH_1}")
+        if(newest_bpm_version VERSION_GREATER BPM_VERSION)
+            message(STATUS "BPM [${PROJECT_NAME}]:   A newer version of BPM is available: ${newest_bpm_version} (current: ${BPM_VERSION})")
+            if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+                message(STATUS "BPM [${PROJECT_NAME}]:     Update with: curl -o cmake/BPM.cmake \"https://github.com/TobiasWallner/BPM.cmake/releases/download/${newest_bpm_version}/BPM.cmake\" -L")
+            elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+                message(STATUS "BPM [${PROJECT_NAME}]:     Update with: Invoke-WebRequest -Uri \"https://github.com/TobiasWallner/BPM.cmake/releases/download/${newest_bpm_version}/BPM.cmake\" -OutFile \"cmake/BPM.cmake\"")
+            endif()
+        endif()
+    endif()        
+    
+endfunction()
+
 #
 function(BPMMakeAvailable)
+
+    set(BPM_VERSION "v0.5.1")
+    set(BPM_REPO "https://github.com/TobiasWallner/BPM.cmake")
+
+    message(STATUS "BPM [${PROJECT_NAME}]: BPM version: ${BPM_VERSION}")
 
     if(NOT PROJECT_IS_TOP_LEVEL)
         return()
@@ -2156,7 +2175,7 @@ function(BPMMakeAvailable)
     set(oneValueArgs)
     set(multiValueArgs)
     cmake_parse_arguments(_BPM "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
-    
+
     if(_BPM_VERBOSE)
         set(BPM_VERBOSE TRUE)
     endif()
@@ -2165,6 +2184,10 @@ function(BPMMakeAvailable)
     endif()
     if(_BPM_NO_DOWNLOAD_UPDATES)
         set(BPM_NO_DOWNLOAD_UPDATES TRUE)
+    endif()
+
+    if((NOT BPM_NO_DOWNLOAD) AND (NOT BPM_NO_DOWNLOAD_UPDATES))
+        bpm_check_for_bpm_updates("${BPM_VERSION}" "${BPM_REPO}")
     endif()
 
     bpm_get_cache_dir(BPM_CACHE_DIR)
@@ -2279,6 +2302,31 @@ function(BPMMakeAvailable)
     # ------------------------------------------------------------------------------
     # Add package with `add_subdirectory` or install and add with `find_package`
     # ------------------------------------------------------------------------------
+    
+    # Provide key value pairs for solution entries
+    foreach(pkg IN LISTS solution) 
+        # clear variables to prevent accidental reuse in the loop
+        set(PKG_NAME)
+        set(PKG_VERSION)
+        set(PKG_GIT_REPO)
+        set(PKG_TYPE)
+        set(PKG_OPTIONS)
+        set(PKG_PACKAGES)
+
+        # parse solution entry
+        set(options)
+        set(oneValueArgs NAME VERSION GIT_REPO TYPE)
+        set(multiValueArgs OPTIONS PACKAGES DEPENDENCIES)
+        separate_arguments(pkg_tokens UNIX_COMMAND "${pkg}")
+        cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${pkg_tokens})
+
+        set(BPM_PKG_${PKG_NAME}_VERSION "${PKG_VERSION}")
+        set(BPM_PKG_${PKG_NAME}_GIT_REPO "${PKG_GIT_REPO}")
+        set(BPM_PKG_${PKG_NAME}_OPTIONS "${PKG_OPTIONS}")
+        set(BPM_PKG_${PKG_NAME}_PACKAGES "${PKG_PACKAGES}")
+
+    endforeach()
+
     message("")
     message(STATUS "BPM [${PROJECT_NAME}]: Making packages available")
     list(REVERSE solution) # reverse for correct order of installation (dependencies first) - should have leaves first
@@ -2335,7 +2383,7 @@ function(BPMMakeAvailable)
         list(SORT PKG_DEPENDENCIES)
         foreach(dep IN LISTS PKG_DEPENDENCIES)
             if(BPM_${dep}_FOUND)
-                string(APPEND DEPENDENCIES_MANIFESTS "\n  DEPENDENCY ${dep} MANIFEST ${BPM_${dep}_MANIFEST_HASH}")
+                string(APPEND DEPENDENCIES_MANIFESTS "\n  DEPENDENCY ${dep} VERSION ${BPM_PKG_${PKG_NAME}_VERSION} REPO ${BPM_PKG_${PKG_NAME}_GIT_REPO} OPTIONS ${BPM_PKG_${PKG_NAME}_OPTIONS} PACKAGES ${BPM_PKG_${PKG_NAME}_PACKAGES} MANIFEST ${BPM_${dep}_MANIFEST_HASH}")
             else()
                 message(FATAL_ERROR "BPM [${PROJECT_NAME}:${PKG_NAME}]: Dependency '${dep}' referenced but no manifest has been created yet. This should not happen. Please report this to the developers.")
             endif()
@@ -2373,7 +2421,6 @@ function(BPMMakeAvailable)
             PKG_GIT_COMMIT
             PKG_GIT_REPO
             PKG_OPTIONS
-            PKG_PACKAGES
             PKG_TYPE
             DEPENDENCIES_MANIFESTS
         ) 
