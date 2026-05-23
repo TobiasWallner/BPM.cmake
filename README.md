@@ -6,7 +6,7 @@ Status
 
 Experimental
 
-[![Tests](https://github.com/TobiasWallner/BPM.cmake/actions/workflows/tests.yml/badge.svg)](https://github.com/TobiasWallner/BPM.cmake/actions/workflows/tests.yml)
+[![Tests](https://github.com/TobiasWallner/BPM.cmake/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/TobiasWallner/BPM.cmake/actions/workflows/tests.yml)
 
 What is BPM
 ------------
