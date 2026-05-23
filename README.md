@@ -224,6 +224,7 @@ Call `BPMMakeAvailable()` once after you have declared all libraries to:
   - Create a manifest and unique build hash that depends on: System, compiler, options, flags, versions, cpu, toolchains ... etc.
   - Optionally build and installs libraries.
   - Integrates libraries with `find_package` or `add_subdirectory`
+  - Will default to building everything in `Release` (`-DCMAKE_BUILD_TYPE=Release` or `--config Release`). Except when a toolchain file is provided (e.g.: `-DCMAKE_TOOLCHAIN_FILE=path/to/toolchainfile.cmake`).
   
 ### Optional Flags:
 - `NO_DOWNLOAD`: Will not download/clone/fetch repositories and only use what is already present
