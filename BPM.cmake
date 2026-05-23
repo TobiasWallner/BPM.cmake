@@ -273,7 +273,7 @@ function(bpm_parse_arguments INPUT out_name out_repo out_tag out_options out_pac
     # Parse arguments in long form
     set(options PRIVATE)
     set(oneValueArgs NAME GIT_REPOSITORY GIT_TAG)
-    set(multiValueArgs PACKAGES OPTION DEPENDENCIES)
+    set(multiValueArgs PACKAGES OPTIONS DEPENDENCIES)
     cmake_parse_arguments(PKG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${INPUT})
 
     foreach(opt IN LISTS PKG_OPTIONS)
