@@ -2361,13 +2361,36 @@ function(BPMMakeAvailable)
         # -------------------------------
 
         set(C_COMPILER_HASH)
+        set(C_COMPILER_HASH)
         if(CMAKE_C_COMPILER)
-            file(SHA256 "${CMAKE_C_COMPILER}" C_COMPILER_HASH)
+            if(IS_ABSOLUTE "${CMAKE_C_COMPILER}")
+                # Already an absolute path
+                if(EXISTS "${CMAKE_C_COMPILER}")
+                    file(SHA256 "${CMAKE_C_COMPILER}" C_COMPILER_HASH)
+                endif()
+            else()
+                # Command name only - resolve it via PATH
+                find_program(C_COMPILER_FULL_PATH "${CMAKE_C_COMPILER}")
+                if(C_COMPILER_FULL_PATH AND EXISTS "${C_COMPILER_FULL_PATH}")
+                    file(SHA256 "${C_COMPILER_FULL_PATH}" C_COMPILER_HASH)
+                endif()
+            endif()
         endif()
 
         set(CXX_COMPILER_HASH)
         if(CMAKE_CXX_COMPILER)
-            file(SHA256 "${CMAKE_CXX_COMPILER}" CXX_COMPILER_HASH)
+            if(IS_ABSOLUTE "${CMAKE_CXX_COMPILER}")
+                # Already an absolute path
+                if(EXISTS "${CMAKE_CXX_COMPILER}")
+                    file(SHA256 "${CMAKE_CXX_COMPILER}" CXX_COMPILER_HASH)
+                endif()
+            else()
+                # Command name only - resolve it via PATH
+                find_program(CXX_COMPILER_FULL_PATH "${CMAKE_CXX_COMPILER}")
+                if(CXX_COMPILER_FULL_PATH AND EXISTS "${CXX_COMPILER_FULL_PATH}")
+                    file(SHA256 "${CXX_COMPILER_FULL_PATH}" CXX_COMPILER_HASH)
+                endif()
+            endif()
         endif()
 
         file(LOCK "${lib_mirror_lock_file}")
