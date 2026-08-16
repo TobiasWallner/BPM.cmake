@@ -693,7 +693,7 @@ function(bpm_get_cache_dir RESULT_VAR)
         message(STATUS "BPM [${PROJECT_NAME}]: resolve BPM_CACHE - from environment variable: ${cache_dir}")
     else()
         set(cache_dir "${CMAKE_BINARY_DIR}/_deps")
-        message(STATUS "BPM [${PROJECT_NAME}]: resolve BPM_CACHE - no cache provided: use local: ${cache_dir}")
+        message(STATUS "BPM [${PROJECT_NAME}]: resolve BPM_CACHE - no cache provided: use local: ${cache_dir} (provide one with: `-DBPM_CACHE=path/to/cache` or set `BPM_CACHE` as an environment variable)")
     endif()
 
     # turn into absolute path
