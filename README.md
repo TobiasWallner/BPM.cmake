@@ -45,10 +45,16 @@ mkdir -p cmake
 curl -o cmake/BPM.cmake "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.5.2/BPM.cmake" -L
 ```                     
 
-for Windows:
+for Windows (powershell):
 ```powershell
-mkdir cmake
+if (-not (Test-Path -Path .\cmake)) { New-Item -ItemType Directory -Path .\cmake }
 Invoke-WebRequest -Uri "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.5.2/BPM.cmake" -OutFile "cmake/BPM.cmake"
+```
+
+for Windows (cmd):
+```cmd
+if not exist cmake mkdir cmake
+certutil -urlcache -split -f "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.5.2/BPM.cmake" "cmake\BPM.cmake"
 ```
 
 ### Example:
