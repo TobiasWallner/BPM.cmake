@@ -2416,6 +2416,8 @@ function(BPMMakeAvailable)
         list(SORT PKG_OPTIONS)
         list(SORT PKG_PACKAGES)
         
+        # repo WOT ([W]ith[O]ut [T]railing) .git suffix for manifest
+        string(REGEX REPLACE "\.git$" "" PKG_GIT_REPO_WOT "${PKG_GIT_REPO}")
         
         # turn tag into commit hash
         bpm_create_manifest(manifest
@@ -2442,7 +2444,7 @@ function(BPMMakeAvailable)
             PKG_NAME
             PKG_VERSION
             PKG_GIT_COMMIT
-            PKG_GIT_REPO
+            PKG_GIT_REPO_WOT
             PKG_OPTIONS
             PKG_TYPE
             DEPENDENCIES_MANIFESTS
