@@ -2204,6 +2204,13 @@ function(bpm_get_newest_version_from_mirror lib_name library_mirror_dir OUT_NEWE
     string(REPLACE "\n" ";" version_tags "${version_tags}") 
     bpm_extract_version_list("${version_tags}" version_list)
 
+    # if the list is empty, return early
+    if(NOT version_list)
+        # return empty string if no version was found
+        set(${OUT_NEWEST_VERSION} "" PARENT_SCOPE)
+        return()
+    endif()
+
     # sort the version list so that the newest version is at the front
     list(SORT version_list COMPARE NATURAL) # Natural does numerical comparison within version strings, e.g. 1.10 > 1.9
 
