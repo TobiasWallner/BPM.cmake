@@ -2743,7 +2743,7 @@ function(BPMCreateInstallPackage)
     if(ARGC EQUAL 1)
         # infere everything from the passed library target
         set(ARG_PACKAGE_NAME ${ARGV0})
-        set(ARG_EXPORT_NAMESPACE ${ARGV0})
+        set(ARG_NAMESPACE ${ARGV0})
         set(ARG_TARGETS ${ARGV0})
     else()
         # provide specific arguments
@@ -2761,8 +2761,8 @@ function(BPMCreateInstallPackage)
         message(FATAL_ERROR "BPMInstall [${ARG_PACKAGE_NAME}]: No TARGETS provided for the package")
     endif()
     
-    if(NOT ARG_EXPORT_NAMESPACE)
-        set(ARG_EXPORT_NAMESPACE ${PROJECT_NAME})
+    if(NOT ARG_NAMESPACE)
+        set(ARG_NAMESPACE ${PROJECT_NAME})
     endif()
 
     if(NOT ARG_HEADER_FILES_MATCHING)
@@ -2803,7 +2803,7 @@ function(BPMCreateInstallPackage)
 
     install(EXPORT ${ARG_PACKAGE_NAME}_export_set
         FILE "${ARG_PACKAGE_NAME}Targets.cmake"
-        NAMESPACE "${ARG_EXPORT_NAMESPACE}::"
+        NAMESPACE "${ARG_NAMESPACE}::"
         DESTINATION "lib/cmake/${ARG_PACKAGE_NAME}"
     )
 
