@@ -16,17 +16,37 @@ BPM (Binary Package Manager) is a CMake-native package manager that turns ordina
 
 Table of Contents 
 ------------------
-- [Status](#status)
-- [What is BPM](#what-is-bpm)
-- [Quickstart](#quickstart)
-- [Advantages](#advantages)
-- [Adding Dependencies](#adding-dependencies)
-- [Make Dependencies Available](#make-dependencies-available)
-- [Caching](#caching)
-- [Create Installable CMake Packages](#create-installable-cmake-packages)
-- [Dependency Soluation and Lock Files](#dependency-soluation-and-lock-files)
-- [Additional Options](#additional-options)
-- [Error Messages](#error-messages)
+- [BPM](#bpm)
+  - [Status](#status)
+  - [What is BPM](#what-is-bpm)
+  - [Table of Contents](#table-of-contents)
+  - [Quickstart](#quickstart)
+    - [Requirements:](#requirements)
+    - [Installation](#installation)
+    - [Example:](#example)
+  - [Advantages](#advantages)
+  - [Adding Dependencies](#adding-dependencies)
+    - [Short-Form](#short-form)
+    - [Long-Form](#long-form)
+    - [Required:](#required)
+    - [Optional:](#optional)
+  - [Make Dependencies Available](#make-dependencies-available)
+    - [Optional Flags:](#optional-flags)
+    - [Global Compiler Flags](#global-compiler-flags)
+    - [Outputs](#outputs)
+  - [Caching](#caching)
+  - [Create Installable CMake Packages](#create-installable-cmake-packages)
+    - [What it does](#what-it-does)
+    - [Library Structure Assumptions](#library-structure-assumptions)
+    - [Function signatures](#function-signatures)
+      - [Shorthand-form](#shorthand-form)
+        - [Long-form](#long-form-1)
+        - [Required Arguments](#required-arguments)
+        - [Optional Arguments](#optional-arguments)
+        - [EXAMPLE](#example-1)
+  - [Dependency Soluation and Lock Files](#dependency-soluation-and-lock-files)
+  - [Additional Options](#additional-options)
+  - [Error Messages](#error-messages)
 
 Quickstart
 ----------
@@ -58,6 +78,8 @@ certutil -urlcache -split -f "https://github.com/TobiasWallner/BPM.cmake/release
 ```
 
 ### Example:
+
+CMakeLists.txt:
 ```cmake
 cmake_minimum_required(VERSION 3.22)
 ############################# LIBRARIES ##################################
@@ -227,11 +249,17 @@ Call `BPMMakeAvailable()` once after you have declared all libraries to:
   - solve the dependency graph
     - even diamond dependencies
   - Download libraries into the cache (default is `${CMAKE_BINARY_DIR}/_deps`)
-  - Create a manifest and unique build hash that depends on: System, compiler, options, flags, versions, cpu, toolchains ... etc.
+  - Create a manifest and unique build hash that depends on: System, compiler, options, global flags, versions, and CPU architecture.
   - Optionally build and installs libraries.
   - Integrates libraries with `find_package` or `add_subdirectory`
-  - Will default to building everything in `Release` (`-DCMAKE_BUILD_TYPE=Release` or `--config Release`). Except when a toolchain file is provided (e.g.: `-DCMAKE_TOOLCHAIN_FILE=path/to/toolchainfile.cmake`).
+  - Install dependencies are configured, built, and installed in `Release` (`-DCMAKE_BUILD_TYPE=Release` or `--config Release`), including when a toolchain file is provided.
   
+`BPMMakeAvailable()` Also generates the file `.bpm-registry` in the projects source directory.
+It contains all the packages/libraries that this library needs (aka. that have been added with `BPMAddInstallPackage()` or `BPMAddSourcePackage()`). This file is needed another project that uses BPM and adds your project as a dependency.
+Add that file to your git repository.
+This file will only change if you change the added packages.
+
+
 ### Optional Flags:
 - `NO_DOWNLOAD`: Will not download/clone/fetch repositories and only use what is already present
   - if the repository has not been mirrored yet --> fail instead of clone
@@ -241,10 +269,12 @@ Call `BPMMakeAvailable()` once after you have declared all libraries to:
   - if the repository might be out-of-date (triggered by '`>=`' and maybe '`^`', '`~`') --> skips the fetching (will result in faster configurations)
 - `VERBOSE`: Will print intermediary steps and results, especially of the version solving process
 
-`BPMMakeAvailable()` Also generates the file `.bpm-registry` in the projects source directory. 
-It contains all the packages/libraries that this library needs (aka. that have been added with `BPMAddInstallPackage()` or `BPMAddSourcePackage()`). This file is needed another project that uses BPM and adds your project as a dependency.
-Add that file to your git repository.
-This file will only change if you change the added packages. 
+### Global Compiler Flags
+
+Set `BPM_GLOBAL_C_FLAGS`, `BPM_GLOBAL_CXX_FLAGS`, and `BPM_GLOBAL_ASM_FLAGS` to compiler flags that should apply to this project and all BPM dependencies. Put shared compiler flags in these variables rather than in the toolchain file. `BPMMakeAvailable()` appends them to this project's `CMAKE_*_FLAGS`; separately configured dependencies receive the BPM globals as their canonical flags. Other project-local `CMAKE_*_FLAGS` are not forwarded to install dependencies.
+
+Each manifest's `C_FLAGS`, `CXX_FLAGS`, and `ASM_FLAGS` combine the corresponding `BPM_GLOBAL_*_FLAGS`, local `CMAKE_*_FLAGS`, and the active single-config flags. Installed dependencies use Release flags; source packages use the selected `CMAKE_BUILD_TYPE`. The manifest also records this project's executable/shared-library linker flags and the toolchain file content hash.
+
 
 ### Outputs
 

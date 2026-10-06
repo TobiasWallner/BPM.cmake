@@ -1827,7 +1827,7 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
     endif()
 
     set(config_arg)
-    if((NOT CMAKE_CONFIGURATION_TYPES) AND (NOT CMAKE_TOOLCHAIN_FILE))
+    if(NOT CMAKE_CONFIGURATION_TYPES)
         set(config_arg "-DCMAKE_BUILD_TYPE=Release")    
     endif()
 
@@ -1862,14 +1862,9 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
                 set(arg_build_shared_libs "-DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}")
             endif()
 
-            set(arg_compile_cxx_flags)
-            if(CMAKE_CXX_FLAGS)
-                set(arg_compile_cxx_flags "-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}")
-            endif()
-
-            set(arg_compile_c_flags)
-            if(CMAKE_C_FLAGS)
-                set(arg_compile_c_flags "-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS}")
+            bpm_get_global_compile_flag_args(arg_global_compile_flags)
+            if(NOT EXISTS "${lib_src_dir}/.bpm-registry")
+                list(FILTER arg_global_compile_flags EXCLUDE REGEX "^-DBPM_GLOBAL_")
             endif()
 
             set(quiet)
@@ -1879,7 +1874,7 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
 
             # TODO: Optimisation: skip instead of re-configuring
             if(BPM_VERBOSE)
-                message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: execute command: ${CMAKE_COMMAND} -S \"${lib_src_dir}\" -B \"${lib_build_dir}\" -G \"${CMAKE_GENERATOR}\" ${config_arg} ${bpm_cache_arg} -DCMAKE_INSTALL_PREFIX=\"${lib_install_dir}\" ${arg_position_independent_code} ${arg_build_shared_libs} ${cmake_build_args} ${toolchain_args} ${cmake_disable_test_example_flags} ${dependencies_arg} ${verbose_arg}")
+                message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: execute command: ${CMAKE_COMMAND} -S \"${lib_src_dir}\" -B \"${lib_build_dir}\" -G \"${CMAKE_GENERATOR}\" ${config_arg} ${bpm_cache_arg} -DCMAKE_INSTALL_PREFIX=\"${lib_install_dir}\" ${arg_position_independent_code} ${arg_build_shared_libs} ${arg_global_compile_flags} ${cmake_build_args} ${toolchain_args} ${cmake_disable_test_example_flags} ${dependencies_arg} ${verbose_arg}")
             endif()
 
             
@@ -1888,6 +1883,7 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
                 -S "${lib_src_dir}"
                 -B "${lib_build_dir}"
                 -G "${CMAKE_GENERATOR}"
+                ${config_arg}
                 
                 "-DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
                 "-DCMAKE_GENERATOR=${CMAKE_GENERATOR}"
@@ -1896,8 +1892,7 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
                 "-DCMAKE_INSTALL_PREFIX=${lib_install_dir}"
                 ${arg_position_independent_code}
                 ${arg_build_shared_libs}
-                ${arg_compile_cxx_flags}
-                ${arg_compile_c_flags}
+                ${arg_global_compile_flags}
 
                 ${cmake_build_args}
                 ${toolchain_args}
@@ -2220,6 +2215,89 @@ function(bpm_get_newest_version_from_mirror lib_name library_mirror_dir OUT_NEWE
 endfunction()
 
 #
+function(bpm_append_global_flags current_flags global_flags out_flags)
+    string(STRIP "${current_flags}" current_flags)
+    string(STRIP "${global_flags}" global_flags)
+
+    if(NOT global_flags)
+        set(combined_flags "${current_flags}")
+    elseif(NOT current_flags)
+        set(combined_flags "${global_flags}")
+    else()
+        string(FIND " ${current_flags} " " ${global_flags} " global_flags_position)
+        if(global_flags_position EQUAL -1)
+            set(combined_flags "${current_flags} ${global_flags}")
+        else()
+            set(combined_flags "${current_flags}")
+        endif()
+    endif()
+
+    set(${out_flags} "${combined_flags}" PARENT_SCOPE)
+endfunction()
+
+function(bpm_get_global_compile_flag_args out_args)
+    set(compile_flag_args)
+    foreach(language IN ITEMS C CXX ASM)
+        set(global_flags_variable "BPM_GLOBAL_${language}_FLAGS")
+        set(global_flags "${${global_flags_variable}}")
+        if(global_flags)
+            list(APPEND compile_flag_args
+                "-DCMAKE_${language}_FLAGS=${global_flags}"
+                "-D${global_flags_variable}=${global_flags}"
+            )
+        endif()
+    endforeach()
+    set(${out_args} "${compile_flag_args}" PARENT_SCOPE)
+endfunction()
+
+function(bpm_get_toolchain_hash out_hash)
+    set(toolchain_hash "")
+    if(CMAKE_TOOLCHAIN_FILE)
+        set(toolchain_file "${CMAKE_TOOLCHAIN_FILE}")
+        cmake_path(ABSOLUTE_PATH toolchain_file BASE_DIRECTORY "${CMAKE_SOURCE_DIR}" NORMALIZE)
+        if(NOT EXISTS "${toolchain_file}")
+            message(FATAL_ERROR "BPM [${PROJECT_NAME}]: Toolchain file does not exist: ${toolchain_file}")
+        endif()
+        file(SHA256 "${toolchain_file}" toolchain_hash)
+    endif()
+    set(${out_hash} "${toolchain_hash}" PARENT_SCOPE)
+endfunction()
+
+function(bpm_get_manifest_compile_flags PKG_TYPE out_c_flags out_cxx_flags out_asm_flags)
+    if("${PKG_TYPE}" STREQUAL "INSTALL")
+        set(active_configuration RELEASE)
+    elseif(CMAKE_BUILD_TYPE)
+        string(TOUPPER "${CMAKE_BUILD_TYPE}" active_configuration)
+    else()
+        set(active_configuration "")
+    endif()
+
+    foreach(language IN ITEMS C CXX ASM)
+        set(global_flags_variable "BPM_GLOBAL_${language}_FLAGS")
+        set(canonical_flags_variable "CMAKE_${language}_FLAGS")
+        bpm_append_global_flags(
+            "${${global_flags_variable}}"
+            "${${canonical_flags_variable}}"
+            active_flags
+        )
+
+        if(active_configuration)
+            set(config_flags_variable "CMAKE_${language}_FLAGS_${active_configuration}")
+            if(DEFINED ${config_flags_variable} AND NOT "${${config_flags_variable}}" STREQUAL "")
+                string(APPEND active_flags " ${${config_flags_variable}}")
+            endif()
+        endif()
+
+        if(language STREQUAL "C")
+            set(${out_c_flags} "${active_flags}" PARENT_SCOPE)
+        elseif(language STREQUAL "CXX")
+            set(${out_cxx_flags} "${active_flags}" PARENT_SCOPE)
+        else()
+            set(${out_asm_flags} "${active_flags}" PARENT_SCOPE)
+        endif()
+    endforeach()
+endfunction()
+
 function(BPMMakeAvailable)
 
     set(BPM_VERSION "v0.5.4")
@@ -2230,6 +2308,18 @@ function(BPMMakeAvailable)
     if(NOT PROJECT_IS_TOP_LEVEL)
         return()
     endif()
+
+    foreach(language IN ITEMS C CXX ASM)
+        set(canonical_flags_variable "CMAKE_${language}_FLAGS")
+        set(global_flags_variable "BPM_GLOBAL_${language}_FLAGS")
+        bpm_append_global_flags(
+            "${${canonical_flags_variable}}"
+            "${${global_flags_variable}}"
+            effective_flags
+        )
+        set(${canonical_flags_variable} "${effective_flags}")
+        set(${canonical_flags_variable} "${effective_flags}" PARENT_SCOPE)
+    endforeach()
 
     message("")
 
@@ -2501,6 +2591,13 @@ function(BPMMakeAvailable)
         string(REGEX REPLACE "\.git$" "" PKG_GIT_REPO_WOT "${PKG_GIT_REPO}")
         
         # turn tag into commit hash
+        bpm_get_manifest_compile_flags(
+            "${PKG_TYPE}"
+            C_FLAGS
+            CXX_FLAGS
+            ASM_FLAGS
+        )
+        bpm_get_toolchain_hash(TOOLCHAIN_HASH)
         bpm_create_manifest(manifest
             CMAKE_C_COMPILER_ID
             C_COMPILER_HASH
@@ -2517,8 +2614,10 @@ function(BPMMakeAvailable)
             BUILD_SHARED_LIBS
             CMAKE_POSITION_INDEPENDENT_CODE
             CMAKE_INTERPROCEDURAL_OPTIMIZATION
-            CMAKE_C_FLAGS
-            CMAKE_CXX_FLAGS
+            CMAKE_CONFIGURATION_TYPES
+            C_FLAGS
+            CXX_FLAGS
+            ASM_FLAGS
             CMAKE_EXE_LINKER_FLAGS
             CMAKE_SHARED_LINKER_FLAGS
             TOOLCHAIN_HASH
