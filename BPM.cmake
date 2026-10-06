@@ -1862,6 +1862,16 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
                 set(arg_build_shared_libs "-DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}")
             endif()
 
+            set(arg_compile_cxx_flags)
+            if(CMAKE_CXX_FLAGS)
+                set(arg_compile_cxx_flags "-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}")
+            endif()
+
+            set(arg_compile_c_flags)
+            if(CMAKE_C_FLAGS)
+                set(arg_compile_c_flags "-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS}")
+            endif()
+
             set(quiet)
             if(NOT BPM_VERBOSE)
                 set(quiet "OUTPUT_QUIET")
@@ -1872,6 +1882,7 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
                 message(STATUS "BPM [${PROJECT_NAME}:${lib_name}]: execute command: ${CMAKE_COMMAND} -S \"${lib_src_dir}\" -B \"${lib_build_dir}\" -G \"${CMAKE_GENERATOR}\" ${config_arg} ${bpm_cache_arg} -DCMAKE_INSTALL_PREFIX=\"${lib_install_dir}\" ${arg_position_independent_code} ${arg_build_shared_libs} ${cmake_build_args} ${toolchain_args} ${cmake_disable_test_example_flags} ${dependencies_arg} ${verbose_arg}")
             endif()
 
+            
             execute_process(
                 COMMAND ${CMAKE_COMMAND}
                 -S "${lib_src_dir}"
@@ -1885,7 +1896,9 @@ function(bpm_configure_library BPM_CACHE_DIR lib_name lib_src_dir lib_build_dir 
                 "-DCMAKE_INSTALL_PREFIX=${lib_install_dir}"
                 ${arg_position_independent_code}
                 ${arg_build_shared_libs}
-                
+                ${arg_compile_cxx_flags}
+                ${arg_compile_c_flags}
+
                 ${cmake_build_args}
                 ${toolchain_args}
                 ${cmake_disable_test_example_flags}
