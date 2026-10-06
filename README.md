@@ -62,19 +62,19 @@ In your project do:
 for Linux:
 ```bash
 mkdir -p cmake
-curl -o cmake/BPM.cmake "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.5.4/BPM.cmake" -L
+curl -o cmake/BPM.cmake "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.6.0/BPM.cmake" -L
 ```                     
 
 for Windows (powershell):
 ```powershell
 if (-not (Test-Path -Path .\cmake)) { New-Item -ItemType Directory -Path .\cmake }
-Invoke-WebRequest -Uri "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.5.4/BPM.cmake" -OutFile "cmake/BPM.cmake"
+Invoke-WebRequest -Uri "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.6.0/BPM.cmake" -OutFile "cmake/BPM.cmake"
 ```
 
 for Windows (cmd):
 ```cmd
 if not exist cmake mkdir cmake
-certutil -urlcache -split -f "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.5.4/BPM.cmake" "cmake\BPM.cmake"
+certutil -urlcache -split -f "https://github.com/TobiasWallner/BPM.cmake/releases/download/v0.6.0/BPM.cmake" "cmake\BPM.cmake"
 ```
 
 ### Example:
